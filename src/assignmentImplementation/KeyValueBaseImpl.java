@@ -6,6 +6,9 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.List;
 
+import javax.jws.WebMethod;
+import javax.jws.WebService;
+
 import keyValueBaseExceptions.BeginGreaterThanEndException;
 import keyValueBaseExceptions.KeyAlreadyPresentException;
 import keyValueBaseExceptions.KeyNotFoundException;
@@ -16,12 +19,14 @@ import keyValueBaseInterfaces.KeyValueBase;
 import keyValueBaseInterfaces.Pair;
 import keyValueBaseInterfaces.Predicate;
 
+@WebService
 public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 {
 
-	public KeyValueBaseImpl(IndexImpl index) {
-		// TODO Auto-generated constructor stub
-	}
+	// comment out because it causes errors with wsdl
+//	public KeyValueBaseImpl(IndexImpl index) {
+//		// TODO Auto-generated constructor stub
+//	}
 
 	/**
 	 * This function gets as input a path name to a file stored in the server containing
@@ -30,7 +35,8 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 	 *  It needs to check if the file exists; check that the service is not already active
 	 *  Then parse the input file into the key-value store
 	 */
-	@Override
+	@Override 
+	@WebMethod
 	public void init(String serverFilename)
 			throws ServiceAlreadyInitializedException,
 			ServiceInitializingException, FileNotFoundException {
@@ -61,14 +67,14 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 
 	}
 
-	@Override
+	@Override @WebMethod
 	public ValueListImpl read(KeyImpl k) throws KeyNotFoundException,
 			IOException, ServiceNotInitializedException {
 		// TODO Auto-generated method stub
 		return null;
 	}
 
-	@Override
+	@Override @WebMethod
 	public void insert(KeyImpl k, ValueListImpl v)
 			throws KeyAlreadyPresentException, IOException,
 			ServiceNotInitializedException {
@@ -76,7 +82,7 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 		
 	}
 
-	@Override
+	@Override @WebMethod
 	public void update(KeyImpl k, ValueListImpl newV)
 			throws KeyNotFoundException, IOException,
 			ServiceNotInitializedException {
@@ -84,7 +90,7 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 		
 	}
 
-	@Override
+	@Override @WebMethod
 	public void delete(KeyImpl k) throws KeyNotFoundException,
 			ServiceNotInitializedException {
 		// TODO Auto-generated method stub
@@ -99,7 +105,7 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 		return null;
 	}
 
-	@Override
+	@Override 
 	public List<ValueListImpl> atomicScan(KeyImpl begin, KeyImpl end,
 			Predicate<ValueListImpl> p) throws IOException,
 			BeginGreaterThanEndException, ServiceNotInitializedException {
@@ -107,7 +113,7 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 		return null;
 	}
 
-	@Override
+	@Override 
 	public void bulkPut(List<Pair<KeyImpl, ValueListImpl>> mappings)
 			throws IOException, ServiceNotInitializedException {
 		// TODO Auto-generated method stub
