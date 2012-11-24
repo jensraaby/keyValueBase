@@ -3,3 +3,4 @@
 *.prefs
 .settings/
 *.launch
+*.DS_Store

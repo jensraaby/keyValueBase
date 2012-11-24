@@ -56,6 +56,7 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 	    }
 		finally {
 			//any clean up handled here
+			System.out.println("finished initialising!");
 		}
 
 	}
