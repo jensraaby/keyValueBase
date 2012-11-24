@@ -1,0 +1,4 @@
+*.class
+*.classpath
+*.prefs
+.settings/
