@@ -2,6 +2,7 @@ package assignmentImplementation;
 
 import java.io.BufferedReader;
 import java.io.FileNotFoundException;
+import java.io.FileReader;
 import java.io.IOException;
 import java.util.List;
 
@@ -35,21 +36,27 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 			ServiceInitializingException, FileNotFoundException {
 		
 		// check if file exists, if not throw filenotfoundexception
-//		try (BufferedReader reader = Files.newBufferedReader(serverFilename, charset)) {
-//		    String line = null;
-//		    while ((line = reader.readLine()) != null) {
-//		        System.out.println(line); // this is where to parse the line
-//		    }
-//		}
-//	    catch (FileNotFoundException ex) {
-//	    	throw FileNotFoundException; // pass back to caller
-//	    catch (IOException x) {
-//		    System.err.format("IOException: %s%n", x);
-//		}
-//	    catch (Exception ex) {
-//	    	// catchall handler
-//	    	throw ServiceInitializingException;
-//	    }
+		try {
+			BufferedReader reader = new BufferedReader(new FileReader(serverFilename));
+		    String line = null;
+		    while ((line = reader.readLine()) != null) {
+		        System.out.println(line); // this is where to parse the line
+		    }
+		    reader.close();
+		}
+	    catch (FileNotFoundException ex) {
+	    	throw new FileNotFoundException(); // pass back to caller
+	    }
+	    catch (IOException x) {
+		    System.err.format("IOException: %s%n", x);
+		}
+	    catch (Exception ex) {
+	    	// catchall handler
+	    	throw new ServiceInitializingException();
+	    }
+		finally {
+			//any clean up handled here
+		}
 
 	}
 
