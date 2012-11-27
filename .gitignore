@@ -4,3 +4,4 @@
 .settings/
 *.launch
 *.DS_Store
+bin/
