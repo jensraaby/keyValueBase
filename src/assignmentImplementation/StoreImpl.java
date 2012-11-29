@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
 
-import keyValueBaseExceptions.ServiceInitializingException;
 import keyValueBaseInterfaces.MemoryMappedFile;
 import keyValueBaseInterfaces.Store;
 
