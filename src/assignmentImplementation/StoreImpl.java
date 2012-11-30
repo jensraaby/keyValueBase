@@ -2,9 +2,9 @@ package assignmentImplementation;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.BufferOverflowException;
 import java.nio.channels.FileChannel;
 
-import keyValueBaseExceptions.ServiceInitializingException;
 import keyValueBaseInterfaces.MemoryMappedFile;
 import keyValueBaseInterfaces.Store;
 
@@ -90,7 +90,15 @@ public class StoreImpl implements Store
 
 	@Override
 	public void write(Long position, byte[] value) {
-		memory.put(value, position);
+		try {
+			memory.put(value, position);
+		}
+		catch (BufferOverflowException ex) {
+			ex.printStackTrace();
+		}
+		catch (IndexOutOfBoundsException ex) {
+			ex.printStackTrace();
+		}
 		
 	}
 	

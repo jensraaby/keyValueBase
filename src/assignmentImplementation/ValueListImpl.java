@@ -1,5 +1,6 @@
 package assignmentImplementation;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -8,34 +9,43 @@ import keyValueBaseInterfaces.ValueList;
 @SuppressWarnings("serial")
 public class ValueListImpl implements ValueList<ValueImpl>{
 	
+	private List<ValueImpl> vlist = new ArrayList<ValueImpl>();
+	
 	@Override
 	public void add(ValueImpl v) {
-		// TODO Auto-generated method stub
-		
+		vlist.add(v);		
 	}
 
 	@Override
 	public void remove(ValueImpl v) {
-		// TODO Auto-generated method stub
+		vlist.remove(v);
 		
 	}
 
 	@Override
 	public void merge(ValueList<ValueImpl> v) {
-		// TODO Auto-generated method stub
-		
+		for (ValueImpl val : v) {
+			vlist.add(val);
+		}
 	}
 
 	@Override
+	public String toString() {
+		String output = new String("VALLIST: ");
+		for (ValueImpl v : vlist) {
+			output = output.concat(v.toString() + ",");
+		}
+		return output;
+	}
+	
+	@Override
 	public List<ValueImpl> toList() {
-		// TODO Auto-generated method stub
-		return null;
+		return vlist;
 	}
 	
 	@Override
 	public Iterator<ValueImpl> iterator() {
-		// TODO Auto-generated method stub
-		return null;
+		return vlist.iterator();
 	}
 
 }
