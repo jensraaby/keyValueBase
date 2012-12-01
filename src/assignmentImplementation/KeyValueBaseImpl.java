@@ -6,6 +6,9 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.List;
 
+import javax.jws.WebMethod;
+import javax.jws.WebService;
+
 import keyValueBaseExceptions.BeginGreaterThanEndException;
 import keyValueBaseExceptions.KeyAlreadyPresentException;
 import keyValueBaseExceptions.KeyNotFoundException;
@@ -16,10 +19,12 @@ import keyValueBaseInterfaces.KeyValueBase;
 import keyValueBaseInterfaces.Pair;
 import keyValueBaseInterfaces.Predicate;
 
+
 public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 {
 
-	public KeyValueBaseImpl(IndexImpl index) {
+	
+	public KeyValueBaseImpl() {
 		// TODO Auto-generated constructor stub
 	}
 
@@ -68,6 +73,7 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 		return null;
 	}
 
+	@WebMethod
 	@Override
 	public void insert(KeyImpl k, ValueListImpl v)
 			throws KeyAlreadyPresentException, IOException,
@@ -76,6 +82,7 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 		
 	}
 
+	@WebMethod
 	@Override
 	public void update(KeyImpl k, ValueListImpl newV)
 			throws KeyNotFoundException, IOException,
@@ -84,6 +91,7 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl,ValueListImpl>
 		
 	}
 
+	@WebMethod
 	@Override
 	public void delete(KeyImpl k) throws KeyNotFoundException,
 			ServiceNotInitializedException {
