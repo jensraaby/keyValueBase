@@ -1,6 +1,8 @@
 package testing;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashSet;
 
 import keyValueBaseExceptions.KeyAlreadyPresentException;
 import keyValueBaseExceptions.KeyNotFoundException;
@@ -32,37 +34,44 @@ public class indexTest {
 			long freebefore = testind.getFreeSpace();
 			
 			System.out.println("initial freespace: " + freebefore);
-			KeyImpl key = new KeyImpl(1);
-			KeyImpl key2 = new KeyImpl(2);
 			
 			try {
+				System.out.print(testind.freeSpaces());
 				System.out.println("inserting with 2 keys: " + vl);
-				testind.insert(key, vl);
-				testind.insert(key2, vl);
-				
-				ValueListImpl got = testind.get(key);
+				int i, N;
+				N = 10;
+				ArrayList<KeyImpl> keys = new ArrayList<KeyImpl>();
+				for (i = 1; i<N; i++) {
+					KeyImpl newKey = new KeyImpl(i);
+					testind.insert(newKey, vl);
+					keys.add(newKey);
+				}
+				System.out.print(testind.freeSpaces());
+				ValueListImpl got = testind.get(keys.get(5));
 				System.out.println(got);
 				int size2 = vszl.toByteArray(got).length;
-				System.out.println("size of valuelist before: " +  size1 + " after: " +  size2);
+				System.out.println("size of valuelist before: " +  size1 + " after retrieval: " +  size2);
 				
 				long freeafter = testind.getFreeSpace();
 				System.out.println("final freespace: " + freeafter + " difference: " + (freebefore - freeafter));
 
-				testind.remove(key2);
+				testind.remove(keys.get(2));
+				testind.remove(keys.get(1));
 				System.out.println("final freespace after deleting: " + testind.getFreeSpace());
-				
-				vl.add(new ValueImpl(1));
+				System.out.print(testind.freeSpaces());
+				vl.add(new ValueImpl(1124125626));
 				vl.remove(v2);
 				vl.remove(v);
-				ValueListImpl gotBefore = testind.get(key);
-				testind.update(key, vl);
+				ValueListImpl gotBefore = testind.get(keys.get(3));
+				testind.update(keys.get(3), vl);
+				testind.update(keys.get(4), vl);
 				System.out.println("size of updated valuelist : " +  vszl.toByteArray(vl).length);
-				ValueListImpl gotAfter = testind.get(key);		
+				ValueListImpl gotAfter = testind.get(keys.get(3));		
 				
-				System.out.println("before value of key2: " + gotBefore + " after: " + gotAfter);
+				System.out.println("before value of key3: " + gotBefore + " after: " + gotAfter);
 				
 				System.out.println("final freespace after updating: " + testind.getFreeSpace());
-
+				System.out.print(testind.freeSpaces());
 				
 
 				

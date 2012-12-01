@@ -8,6 +8,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import com.sun.org.apache.bcel.internal.generic.AllocationInstruction;
 
 import keyValueBaseExceptions.BeginGreaterThanEndException;
 import keyValueBaseExceptions.KeyAlreadyPresentException;
@@ -17,7 +21,7 @@ import keyValueBaseInterfaces.Pair;
 import keyValueBaseInterfaces.Store;
 
 public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
-	
+
 	/**
 	 * Private data structures
 	 * 
@@ -27,68 +31,115 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 * 
 	 */
 	private Store storage;
-//	private Map<KeyImpl, Space> locationTable;
-//	private TreeSet<Space> freeSpaces;
-	private MemoryTable memtable; 
+	
+	// Index data structures:
+	private Map<KeyImpl, Space> allocatedSpaces;
+	private TreeSet<Space> freeSpaces;
+
+	// Utilities:
 	private ValueSerializerImpl serializer = new ValueSerializerImpl();
 
-	// Memory table needs locks to be able to write to it
-	// don't move values, unless they increase size
-	private class MemoryTable {
-		private TreeSet<Space> freeSpaces = new TreeSet<Space>();
-		private Map<KeyImpl, Space> allocatedSpaces = new TreeMap<KeyImpl, Space>();
+	// Concurrency locks - fair so that requests served in order
+	private ReentrantReadWriteLock rwl = new ReentrantReadWriteLock(true);
+	private final Lock r = rwl.readLock();
+	private final Lock w = rwl.writeLock();
 
-		public MemoryTable(long size) {
-			addFreeSpace(size,0L);
-		}
-		
-		/**
-		 * Returns allocation data for given key, if present
-		 * @param k key to lookup
-		 * @return The memory space occupied by the key
-		 * @throws KeyNotFoundException if the key is not present
-		 */
-		public Space getAllocatedSpace(KeyImpl k) throws KeyNotFoundException {
-			if (allocatedSpaces.containsKey(k)) {
-				return allocatedSpaces.get(k);
-			}
-			else
-				throw new KeyNotFoundException(k);
+	/**
+	 * Constructor - creates storage and initialises data structures
+	 * 
+	 * @param storePath
+	 * @param size
+	 */
+	public IndexImpl(String storePath, long size) {
+		w.lock();
+		try {
+			storage = new StoreImpl(storePath, size);
+			allocatedSpaces = new TreeMap<KeyImpl,Space>();
+			freeSpaces = new TreeSet<Space>();
+			freeSpaces.add(new Space(size, 0L));
+
+			// needs to be protected and sorted by key ordering
+
+		} catch (Exception ex) {
+			// TODO think about what needs handling!
+			ex.printStackTrace();
+		} finally {
+			w.unlock();
 		}
 
-		private synchronized void addFreeSpace(int size, long offset) {
+	}
+
+	public String freeSpaces() {
+		r.lock();
+		String free = "";
+		for (Space f : freeSpaces)
+		{
+			free = free + " \n" + f.getOffset() + "[" +  f.getSize() +"]";
+		}
+		r.unlock();
+		return free;
+	}
+	/**
+	 * 
+	 * Adding a free space can modify other parts of memory - hence synchronized
+	 * block
+	 * 
+	 * @param size
+	 * @param offset
+	 */
+	private void addFreeSpace(long size, long offset) {
+		synchronized (freeSpaces) {
 			if (size > 0) {
-				Space newFree = new Space(size,offset);
-				
-				//TODO check for neighbours in freeSpaces - if any then merge
-				TreeMap<Long,Space> toMerge = new TreeMap<Long,Space>();
+				Space newFree = new Space(size, offset);
+
+				// check for neighbours in freeSpaces - if any then merge
+				// sort the merged spaces by position:
+				long newSize = 0;
+				long newOffset = offset;
+				int neighbours = 0;
 				for (Space free : freeSpaces) {
 					if (isNeighbour(free, newFree))
-						toMerge.put(free.getOffset(), free);
-					
-					if (toMerge.size() == 2)
+						System.out.println("New free space has a neighbour!");
+						neighbours++;
+						if (free.getOffset() < newFree.getOffset()) {
+							newOffset = free.getOffset();
+						}
+						freeSpaces.remove(free);
+						newSize += free.getSize();
+
+					if (neighbours == 2)
 						break;
 				}
-				for (long address : toMerge.keySet()) {
-					//TODO implement merge
-					
+				if (newSize > 0) {
+					// create the new freespace at the initial offset
+					newFree.setOffset(newOffset);
+					newFree.setSize(newSize);
+					System.out.println("merging neighbours to add " + newSize + " bytes free space at " + newOffset);
 				}
-			}
-			
 				
+				freeSpaces.add(newFree);
+			}
 		}
-		
-		/**
-		 * Find a space to fit the given key - store the location and return the offset
-		 * 
-		 * This method deals with finding free space and rearranging allocations
-		 * @param k the key to map
-		 * @param size the size of the memory to allocate
-		 * @return the memory offset to store the data
-		 * @throws Exception 
-		 */
-		public synchronized long allocateSpace(KeyImpl k, int size) throws IOException {
-			
+
+	}
+
+	/**
+	 * Find a space to fit the given key - store the location and return the
+	 * offset
+	 * 
+	 * This method deals with finding free space and rearranging allocations
+	 * 
+	 * @param k
+	 *            the key to map
+	 * @param size
+	 *            the size of the memory to allocate
+	 * @return the memory offset to store the data
+	 * @throws Exception
+	 */
+	private long allocateSpace(KeyImpl k, int size) throws IOException {
+
+		w.lock();
+		try {
 			// Create space that fits this data:
 			Space toAllocate = new Space(size);
 
@@ -96,65 +147,47 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 			// this new data:
 			Space selectedFreeSpace = freeSpaces.higher(toAllocate);
 
-			if (selectedFreeSpace != null) 
-			{
+			if (selectedFreeSpace != null) {
 				// set the location for the data
 				toAllocate.setOffset(selectedFreeSpace.getOffset());
+
+				// remove the old free space 
+				freeSpaces.remove(selectedFreeSpace);
 				
 				// add free space after allocated memory
-				addFreeSpace(selectedFreeSpace.getSize() - size, selectedFreeSpace.getOffset()+size);
-							
+				addFreeSpace(selectedFreeSpace.getSize() - size,
+						selectedFreeSpace.getOffset() + size);
+				
 				// update allocation table
 				allocatedSpaces.put(k, toAllocate);
 				
 				return toAllocate.getOffset();
+			} else {
+				throw new IOException(
+						"Not enough free space to hold data for key " + k);
 			}
-			else {
-				throw new IOException("Not enough free space to hold data for key " + k);
-			}
-			
+		} finally {
+			w.unlock();
 		}
-		
-		public synchronized void deleteAllocatedSpace(KeyImpl k) throws KeyNotFoundException{
-			// find the allocation
-			if (allocatedSpaces.containsKey(k)) {
-				Space toDelete = allocatedSpaces.get(k);
-				addFreeSpace(toDelete.getSize(), toDelete.getOffset());
-				allocatedSpaces.remove(k);
-			}
-			else 
-				throw new KeyNotFoundException(k);
-			
-		}
-		
-		/**
-		 * getFreeSpace calculates the total current unassigned memory
-		 * 
-		 * @return the current total free space
-		 */
-		public long getFreeSpace() {
+
+	}
+
+	/**
+	 * getFreeSpace calculates the total current unassigned memory
+	 * 
+	 * @return the current total free space
+	 */
+	public long getFreeSpace() {
+		r.lock();
+		try {
 			long total = 0;
 			for (Space s : freeSpaces) {
 				total += s.getSize();
 			}
+
 			return total;
-		}
-
-		/**
-		 * Returns the number of allocations in the memory table
-		 * @return
-		 */
-		public int getAllocationCount() {
-			return allocatedSpaces.size();
-		}
-
-		/**
-		 * Exposes the containsKey method on the allocation table
-		 * @param k
-		 * @return
-		 */
-		public boolean containsKey(KeyImpl k) {
-			return allocatedSpaces.containsKey(k);
+		} finally {
+			r.unlock();
 		}
 	}
 
@@ -170,7 +203,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 */
 	private class Space implements Comparable<Space> {
 
-		protected Integer size;
+		protected Long size; // could occupy entire memory
 		protected Long offset;
 		protected boolean positioned = false;
 
@@ -182,8 +215,15 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		 * @param o
 		 *            Offset
 		 */
-		public Space(int size, long offset) {
+		public Space(long size, long offset) {
 			this.size = size;
+			this.offset = offset;
+			this.positioned = true;
+		}
+
+		// helper constructor for integer sized spaces
+		public Space(int size, long offset) {
+			this.size = (long) size;
 			this.offset = offset;
 			this.positioned = true;
 		}
@@ -195,7 +235,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		 * @param size
 		 */
 		public Space(int size) {
-			this.size = size;
+			this.size = (long) size;
 			this.positioned = false;
 		}
 
@@ -211,80 +251,84 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		 * Getters and Setters for size and offset
 		 */
 
-		public int getSize() {
+		public long getSize() {
 			return size;
 		}
 
-		public void setSize(int size) {
+		public void setSize(long size) {
 			this.size = size;
 		}
 
-		public Long getOffset() {
+		public long getOffset() {
 			// TODO more graceful handling of non-positioning
 			if (this.positioned)
 				return this.offset;
 			else {
 				return -1L;
 			}
-			
+
 		}
 
 		public void setOffset(Long offset) {
 			this.positioned = true;
 			this.offset = offset;
-			
+
 		}
 
 	}
 
-	public IndexImpl(String storePath, long size) {
-		try {
-			storage = new StoreImpl(storePath, size);
-			memtable = new MemoryTable(size);
-			
-			// needs to be protected and sorted by key ordering
-
-		} catch (Exception ex) {
-			// TODO think about what needs handling!
-			ex.printStackTrace();
-		}
-
-	}
-
-		
 	/**
 	 * Insert a key and value in the data store and update memory table
-	 */	
+	 */
 	@Override
 	public void insert(KeyImpl k, ValueListImpl v)
 			throws KeyAlreadyPresentException, IOException {
 
-		if (memtable.containsKey(k))
-			throw new KeyAlreadyPresentException(k);
-		else {
-			
-			System.out.println("1. Trying to insert key " + k);
-			// Record prior memory table information
-			long countFreespaces = memtable.getFreeSpace();
-			int countAllocations = memtable.getAllocationCount();
-			
-			// serialise valuelist to byte array
-			byte[] data = serializer.toByteArray(v);
+		w.lock();
+		try {
+			if (allocatedSpaces.containsKey(k))
+				throw new KeyAlreadyPresentException(k);
+			else {
 
-			// allocate space - this throws an IO exception if there is not enough free space
-			memtable.allocateSpace(k, (long) data.length); 
+				System.out.println("Trying to insert key " + k);
+				// Record prior memory table information
+				long countFreespaces = getFreeSpace();
+				int countAllocations = allocatedSpaces.size();
 
-			// Check that the tables are correctly updated
-			assert (countFreespaces == memtable.getFreeSpace());
-			assert (countAllocations == memtable.getAllocationCount() + 1);
+				// serialise valuelist to byte array
+				byte[] data = serializer.toByteArray(v);
+
+				// allocate space - this throws an IO exception if there is not
+				// enough free space
+				long offset = allocateSpace(k, data.length);
+
+				// perform the write
+				storage.write(offset, data);
+
+				// Check that the tables were correctly updated
+				assert (countFreespaces == getFreeSpace());
+				assert (countAllocations == allocatedSpaces.size() + 1);
+			}
+		} finally {
+			w.unlock();
 		}
 
 	}
 
 	@Override
 	public void remove(KeyImpl k) throws KeyNotFoundException {
-		// handled by memory table
-		memtable.deleteAllocatedSpace(k);
+		w.lock();
+		try {
+			// find the allocation
+			if (allocatedSpaces.containsKey(k)) {
+				Space toDelete = allocatedSpaces.get(k);
+				allocatedSpaces.remove(k);
+				addFreeSpace(toDelete.getSize(), toDelete.getOffset());
+			} else
+				throw new KeyNotFoundException(k);
+		} finally {
+			w.unlock();
+		}
 	}
 
 	@Override
@@ -294,112 +338,121 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 */
 	public ValueListImpl get(KeyImpl k) throws KeyNotFoundException,
 			IOException {
+		r.lock();
+		try {
+			if (allocatedSpaces.containsKey(k)) {
 
-		if (memtable.containsKey(k)) {
-			
-			Space locationData = memtable.getAllocatedSpace(k);
+				Space locationData = allocatedSpaces.get(k);
 
-			System.out.println("Getting at address: " + locationData.getOffset());
-			
-			// this could throw IOException!
-			byte[] data = storage.read(locationData.getOffset(), locationData.getSize());
+				System.out.println("Getting from address: "
+						+ locationData.getOffset());
 
-			ValueListImpl vl = serializer.fromByteArray(data);
+				// this could throw IOException!
+				// nb. Spaces which are allocated have max size MAXINT
+				// Spaces which are free could have 64bit size
+				byte[] data = storage.read(locationData.getOffset(),
+						(int) locationData.getSize());
 
-			return vl;
+				ValueListImpl vl = serializer.fromByteArray(data);
+
+				return vl;
+			}
+
+			else {
+				throw new KeyNotFoundException(k);
+			}
+		} finally {
+			r.unlock();
 		}
-
-		else {
-			throw new KeyNotFoundException(k);
-		}
-
 	}
 
 	@Override
 	public void update(KeyImpl k, ValueListImpl v) throws KeyNotFoundException,
 			IOException {
-		if (memtable.containsKey(k)) {
-			
-			// serialise the new value:
-			byte[] newValue = serializer.toByteArray(v);
+		w.lock();
+		try {
+			if (allocatedSpaces.containsKey(k)) {
 
-			// get the current location data:
-			Space locationData = memtable.getAllocatedSpace(k);
+				// serialise the new value:
+				byte[] newValue = serializer.toByteArray(v);
 
-			// find the size of the new and the old value
-			int oldSize = locationData.getSize();
-			int newSize = newValue.length;
+				// get the current location data:
+				Space locationData = allocatedSpaces.get(k);
 
-			// Handle size differences in the new and old value:
-			if (oldSize == newSize) {
-				// replace data in store since no change needed
-				storage.write(locationData.getOffset(), newValue);
-				
-			} else if (oldSize > newSize) {
-				// If less memory is needed we can create a new free space.
+				// find the size of the new and the old value
+				int oldSize = (int) locationData.getSize();
+				int newSize = newValue.length;
 
-				try {
-					Space newSpace = new Space(newSize,
-							locationData.getOffset());
+				// Handle size differences in the new and old value:
+				if (oldSize == newSize) {
+					// replace data in store since no change needed
+					storage.write(locationData.getOffset(), newValue);
 
-					putNewLocation(k, newSpace);
+				} else if (oldSize > newSize) {
+					// If less memory is needed we can create a new free space.
 
-					// Store data
-					storage.write(newSpace.getOffset(),
-							serializer.toByteArray(v));
+					try {
+						Space newSpace = new Space(newSize,
+								locationData.getOffset());
 
-					// Create a new free space immediately after the new
-					// allocation
-					Space newFreeSpace = new Space(oldSize - newSize,
-							newSpace.getOffset() + newSize);
-					freeSpaces.add(newFreeSpace);
-				} catch (Exception ex) {
-					// TODO what could go wrong?
-					ex.printStackTrace();
-				}
+						allocatedSpaces.put(k, newSpace);
 
-			} else {
-				// If the new data is larger, a new free space is needed
+						// Store data
+						storage.write(newSpace.getOffset(),
+								serializer.toByteArray(v));
 
-				// Find a big enough space:
-				Space newSpace = freeSpaces.higher(new Space(newSize));
+						// Create a new free space immediately after the new
+						// allocation
+						Space newFreeSpace = new Space(oldSize - newSize,
+								newSpace.getOffset() + newSize);
+						freeSpaces.add(newFreeSpace);
+					} catch (Exception ex) {
+						// TODO what could go wrong?
+						ex.printStackTrace();
+					}
 
-				if (newSpace != null) {
-
-					freeSpaces.remove(newSpace);
-					Space newAllocationData = new Space(newSize,
-							newSpace.offset);
-
-					// put the data
-					locationTable.put(k, newAllocationData);
-					storage.write(newSpace.getOffset(), newValue);
-
-					// Reduce size of free space that we are using
-					Space replacementFreeSpace = new Space(newSpace.size
-							- newSize, newSpace.getOffset() + newSize);
-					freeSpaces.add(replacementFreeSpace);
-
-					// Set the previous storage space as a free space
-					Space newFreeSpace = new Space(oldSize,
-							locationData.getOffset());
-					freeSpaces.add(newFreeSpace);
 				} else {
-					throw new IOException(
-							"Could not find large enough space in memory");
+					// If the new data is larger, a new free space is needed
+
+					// Find a big enough space:
+					Space newSpace = freeSpaces.higher(new Space(newSize));
+
+					if (newSpace != null) {
+
+						freeSpaces.remove(newSpace);
+						Space newAllocationData = new Space(newSize,
+								newSpace.offset);
+
+						// put the data address and write to store
+						allocatedSpaces.put(k, newAllocationData);
+						storage.write(newSpace.getOffset(), newValue);
+
+						// Reduce size of free space that we are using
+						Space replacementFreeSpace = new Space(newSpace.size
+								- newSize, newSpace.getOffset() + newSize);
+						freeSpaces.add(replacementFreeSpace);
+
+						// Set the previous storage space as a free space
+						Space newFreeSpace = new Space(oldSize,
+								locationData.getOffset());
+						freeSpaces.add(newFreeSpace);
+					} else {
+						throw new IOException(
+								"Could not find large enough space in memory");
+					}
+
 				}
 
+				// TODO merging neighbouring freespaces method
+				// need to know if 2 freespaces are neighbours
+			} else {
+				throw new KeyNotFoundException(k);
 			}
-
-			// TODO merging neighbouring freespaces method
-			// need to know if 2 freespaces are neighbours
-			// TODO thread safety/locks
-		} else {
-			throw new KeyNotFoundException(k);
+		} finally {
+			w.unlock();
 		}
 
 	}
-
-	
 
 	/**
 	 * Helper method determines if 2 spaces are next to each other. This can be
