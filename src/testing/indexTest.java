@@ -36,7 +36,7 @@ public class indexTest {
 			System.out.println("initial freespace: " + freebefore);
 			
 			try {
-				System.out.print(testind.freeSpaces());
+				System.out.print(testind.freeSpacesString());
 				System.out.println("inserting with 2 keys: " + vl);
 				int i, N;
 				N = 10;
@@ -45,8 +45,9 @@ public class indexTest {
 					KeyImpl newKey = new KeyImpl(i);
 					testind.insert(newKey, vl);
 					keys.add(newKey);
+					System.out.print(testind.freeSpacesString());
+
 				}
-				System.out.print(testind.freeSpaces());
 				ValueListImpl got = testind.get(keys.get(5));
 				System.out.println(got);
 				int size2 = vszl.toByteArray(got).length;
@@ -55,10 +56,7 @@ public class indexTest {
 				long freeafter = testind.getFreeSpace();
 				System.out.println("final freespace: " + freeafter + " difference: " + (freebefore - freeafter));
 
-				testind.remove(keys.get(2));
-				testind.remove(keys.get(1));
-				System.out.println("final freespace after deleting: " + testind.getFreeSpace());
-				System.out.print(testind.freeSpaces());
+				
 				vl.add(new ValueImpl(1124125626));
 				vl.remove(v2);
 				vl.remove(v);
@@ -71,7 +69,16 @@ public class indexTest {
 				System.out.println("before value of key3: " + gotBefore + " after: " + gotAfter);
 				
 				System.out.println("final freespace after updating: " + testind.getFreeSpace());
-				System.out.print(testind.freeSpaces());
+				System.out.print("removing alternating keys: \n");
+				testind.remove(keys.get(1));
+				for (i = 1; i<N; i+=2) {
+					KeyImpl newKey = new KeyImpl(i);
+					System.out.println("removing key " + i);
+					testind.remove(newKey);
+
+				}
+				
+				System.out.print(testind.freeSpacesString());
 				
 
 				
