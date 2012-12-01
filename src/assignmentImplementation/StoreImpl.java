@@ -1,5 +1,6 @@
 package assignmentImplementation;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.BufferOverflowException;
@@ -30,10 +31,14 @@ public class StoreImpl implements Store
 		
 		
 		try {
+			// memory not persistent: file deleted when program completes!
+			File storeFile = new File(filePath);
+			storeFile.deleteOnExit();
 			
 			// Based partially on http://www.javamex.com/tutorials/io/nio_mapped_buffer.shtml
 			// Create a file to hold data on disk
-			raf = new RandomAccessFile(filePath, "rw");
+			raf = new RandomAccessFile(storeFile,"rw");
+			
 			// Preallocate Set file size (bytes)
 			raf.setLength(totalSize); // e.g size = 2048, size will be 2.1 MB
 			FileChannel fc = raf.getChannel();
