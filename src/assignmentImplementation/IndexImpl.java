@@ -40,9 +40,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 
 	// Index data structures:
 	private Map<KeyImpl, Space> allocatedSpaces;
-	private Map<Long,Long> freeSpaces;
-
-	
+	private Map<Long, Long> freeSpaces;
 
 	// Utilities:
 	private ValueSerializerImpl serializer = new ValueSerializerImpl();
@@ -101,7 +99,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 				// perform the write
 				storage.write(offset, data);
 
-				//POSTCONDITION: Check that the tables were correctly updated
+				// POSTCONDITION: Check that the tables were correctly updated
 				assert (countFreespaces == getFreeSpace());
 				assert (countAllocations == allocatedSpaces.size() + 1);
 			}
@@ -118,18 +116,19 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 			// find the allocation
 			if (allocatedSpaces.containsKey(k)) {
 				int numAllocations = allocatedSpaces.size();
-				
-				
+
 				Space toDelete = allocatedSpaces.remove(k);
-				
-				System.out.println("adding free space at pos: " + toDelete.getOffset() + ". Num free: " + freeSpaces.size());
-				
-				freeSpaces.put(toDelete.getOffset(),toDelete.getSize());
+
+				System.out.println("adding free space at pos: "
+						+ toDelete.getOffset() + ". Num free: "
+						+ freeSpaces.size());
+
+				freeSpaces.put(toDelete.getOffset(), toDelete.getSize());
 				defragmentFreeSpace(toDelete.getOffset());
-				
-				//POSTCONDITION: 1 less allocation than before
-				assert(numAllocations == allocatedSpaces.size()+1);
-				
+
+				// POSTCONDITION: 1 less allocation than before
+				assert (numAllocations == allocatedSpaces.size() + 1);
+
 			} else
 				throw new KeyNotFoundException(k);
 		} finally {
@@ -206,8 +205,9 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 
 						// Create a new free space immediately after the new
 						// allocation
-						freeSpaces.put(newSpace.getOffset()+newSize,(long) oldSize-newSize);
-						defragmentFreeSpace(newSpace.getOffset()+newSize);
+						freeSpaces.put(newSpace.getOffset() + newSize,
+								(long) oldSize - newSize);
+						defragmentFreeSpace(newSpace.getOffset() + newSize);
 					} catch (Exception ex) {
 						// TODO what could go wrong?
 						ex.printStackTrace();
@@ -217,25 +217,27 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 					// If the new data is larger, a new free space is needed
 
 					// Find a big enough space:
-					long newOffset = findSpace(newSize); //freeSpaces.higher(new Space(newSize));
+					long newOffset = findSpace(newSize); // freeSpaces.higher(new
+															// Space(newSize));
 
 					if (newOffset >= 0) {
 
 						long availableSize = freeSpaces.remove(newOffset);
 
-						Space newAllocationData = new Space(newSize,
-								newOffset);
+						Space newAllocationData = new Space(newSize, newOffset);
 
 						// put the data address and write to store
 						allocatedSpaces.put(k, newAllocationData);
 						storage.write(newOffset, newValue);
 
 						// Replace free space that we are not using
-						freeSpaces.put(newOffset+newSize, availableSize - newSize);
-						defragmentFreeSpace(newOffset+newSize);
-						
+						freeSpaces.put(newOffset + newSize, availableSize
+								- newSize);
+						defragmentFreeSpace(newOffset + newSize);
+
 						// Set the previous storage space as a free space
-						freeSpaces.put(locationData.getOffset(), (long) oldSize);
+						freeSpaces
+								.put(locationData.getOffset(), (long) oldSize);
 						defragmentFreeSpace(locationData.getOffset());
 					} else {
 						throw new IOException(
@@ -247,29 +249,13 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 			} else {
 				throw new KeyNotFoundException(k);
 			}
-			//POSTCONDITION: same number of allocations as before
-			assert(numAllocations == allocatedSpaces.size());
-			
+			// POSTCONDITION: same number of allocations as before
+			assert (numAllocations == allocatedSpaces.size());
+
 		} finally {
 			w.unlock();
 		}
 
-	}
-	
-	
-	/**
-	 * Find a space in memory to insert specified size
-	 * @param size
-	 * @return memory offset
-	 */
-	private long findSpace(long size) {
-		for (long offset : freeSpaces.keySet())
-		{
-			if (freeSpaces.get(offset) >= size)
-				return offset;
-		}
-		// invalid space if none found
-		return -1L;
 	}
 
 	@Override
@@ -325,32 +311,29 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	}
 
 	private void defragmentFreeSpace(long offset) {
-				
-				long currentSize = freeSpaces.get(offset);
-				
-				// find any subsequent neighbour:
-				if (freeSpaces.containsKey(offset+currentSize))
-				{
-					// if there is a neighbour, merge the spaces into one
-					long extraSpace = freeSpaces.get(offset+currentSize);
-					freeSpaces.put(offset, currentSize+extraSpace);
-					freeSpaces.remove(offset+currentSize);
-					
-					
-					
-				}
-				// find a previous neighbour is trickier! need to look behind some unspecified amount
-				//TODO - implement backwards search as well!
-//				else if (freeSpaces.containsKey(offset-currentSize)) {
-//					// if there is a previous neighbour, merge the spaces into one
-//					long extraSpace = freeSpaces.get(offset-currentSize);
-//					freeSpaces.put(offset-currentSize, currentSize+extraSpace);
-//					freeSpaces.remove(offset);
-//				}
-				
-		
+
+		long currentSize = freeSpaces.get(offset);
+
+		// find any subsequent neighbour:
+		if (freeSpaces.containsKey(offset + currentSize)) {
+			// if there is a neighbour, merge the spaces into one
+			long extraSpace = freeSpaces.get(offset + currentSize);
+			freeSpaces.put(offset, currentSize + extraSpace);
+			freeSpaces.remove(offset + currentSize);
+
+		}
+		// find a previous neighbour is trickier! need to look behind some
+		// unspecified amount
+		// TODO - implement backwards search as well!
+		// else if (freeSpaces.containsKey(offset-currentSize)) {
+		// // if there is a previous neighbour, merge the spaces into one
+		// long extraSpace = freeSpaces.get(offset-currentSize);
+		// freeSpaces.put(offset-currentSize, currentSize+extraSpace);
+		// freeSpaces.remove(offset);
+		// }
+
 	}
-	
+
 	/**
 	 * 
 	 * Adding a free space can modify other parts of memory - hence synchronized
@@ -359,43 +342,42 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 * @param size
 	 * @param offset
 	 */
-//	private void addFreeSpace(long size, long offset) {
-//		synchronized (freeSpaces) {
-//			if (size > 0) {
-//				Space newFree = new Space(size, offset);
-//
-//				// check for neighbours in freeSpaces - if any then merge
-//				// sort the merged spaces by position:
-//				long newSize = 0;
-//				long newOffset = offset;
-//				int neighbours = 0;
-//				for (Space free : freeSpaces) {
-//					if (isNeighbour(free, newFree))
-//						System.out.println("New free space has a neighbour!");
-//					neighbours++;
-//					if (free.getOffset() < newFree.getOffset()) {
-//						newOffset = free.getOffset();
-//					}
-//					freeSpaces.remove(free);
-//					newSize += free.getSize();
-//
-//					if (neighbours == 2)
-//						break;
-//				}
-//				if (newSize > 0) {
-//					// create the new freespace at the initial offset
-//					newFree.setOffset(newOffset);
-//					newFree.setSize(newSize);
-//					System.out.println("merging neighbours to add " + newSize
-//							+ " bytes free space at " + newOffset);
-//				}
-//
-//				freeSpaces.add(newFree);
-//			}
-//		}
-//
-//	}
-	
+	// private void addFreeSpace(long size, long offset) {
+	// synchronized (freeSpaces) {
+	// if (size > 0) {
+	// Space newFree = new Space(size, offset);
+	//
+	// // check for neighbours in freeSpaces - if any then merge
+	// // sort the merged spaces by position:
+	// long newSize = 0;
+	// long newOffset = offset;
+	// int neighbours = 0;
+	// for (Space free : freeSpaces) {
+	// if (isNeighbour(free, newFree))
+	// System.out.println("New free space has a neighbour!");
+	// neighbours++;
+	// if (free.getOffset() < newFree.getOffset()) {
+	// newOffset = free.getOffset();
+	// }
+	// freeSpaces.remove(free);
+	// newSize += free.getSize();
+	//
+	// if (neighbours == 2)
+	// break;
+	// }
+	// if (newSize > 0) {
+	// // create the new freespace at the initial offset
+	// newFree.setOffset(newOffset);
+	// newFree.setSize(newSize);
+	// System.out.println("merging neighbours to add " + newSize
+	// + " bytes free space at " + newOffset);
+	// }
+	//
+	// freeSpaces.add(newFree);
+	// }
+	// }
+	//
+	// }
 
 	/**
 	 * Find a space to fit the given key - store the location and return the
@@ -429,8 +411,8 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 				long freeSize = freeSpaces.remove(selectedOffset);
 
 				// add free space after allocated memory
-				freeSpaces.put(selectedOffset+size,freeSize-size);
-				defragmentFreeSpace(selectedOffset+size);
+				freeSpaces.put(selectedOffset + size, freeSize - size);
+				defragmentFreeSpace(selectedOffset + size);
 
 				// update allocation table
 				allocatedSpaces.put(k, toAllocate);
@@ -466,6 +448,21 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	}
 
 	/**
+	 * Find a space in memory to insert specified size
+	 * 
+	 * @param size
+	 * @return memory offset
+	 */
+	private long findSpace(long size) {
+		for (long offset : freeSpaces.keySet()) {
+			if (freeSpaces.get(offset) >= size)
+				return offset;
+		}
+		// invalid space if none found
+		return -1L;
+	}
+
+	/**
 	 * Space: a class to represent some area of memory It implements comparable
 	 * so that it can be ordered in a data structure This ordering is based on
 	 * the size (byte length) of the space.
@@ -480,6 +477,13 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		protected Long size; // could occupy entire memory
 		protected Long offset;
 		protected boolean positioned = false;
+
+		// locking mechanism for just this memory space
+		// allows concurrent access to other parts of memory as long as they
+		// don't modify the allocation table
+		//private ReentrantReadWriteLock rwl = new ReentrantReadWriteLock(true);
+		///private final Lock r = rwl.readLock();
+		//private final Lock w = rwl.writeLock();
 
 		/**
 		 * Construct a space with specified size and position
@@ -511,7 +515,12 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		 */
 		@Override
 		public int compareTo(Space s) {
-			return size.compareTo(s.size);
+			
+			try {
+				return size.compareTo(s.size);
+			} finally {
+				
+			}
 		}
 
 		/**
