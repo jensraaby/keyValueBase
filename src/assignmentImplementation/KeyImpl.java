@@ -11,6 +11,10 @@ public final class KeyImpl implements Key<KeyImpl>
     public KeyImpl(int key) {
     	this.key = Integer.valueOf(key);
     }
+    
+    public KeyImpl() {
+    	key = -1; // horrible horrible horrible
+    }
 	
 	@Override
 	public int compareTo(KeyImpl k2) {
