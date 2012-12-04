@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.util.List;
 
 import keyValueBaseExceptions.BeginGreaterThanEndException;
+import keyValueBaseExceptions.KeyAlreadyPresentException;
 import keyValueBaseExceptions.KeyNotFoundException;
 import keyValueBaseExceptions.ServiceAlreadyInitializedException;
 import keyValueBaseExceptions.ServiceInitializingException;
@@ -12,6 +13,7 @@ import keyValueBaseExceptions.ServiceNotInitializedException;
 import keyValueBaseInterfaces.Predicate;
 import assignmentImplementation.KeyImpl;
 import assignmentImplementation.KeyValueBaseImpl;
+import assignmentImplementation.ValueImpl;
 import assignmentImplementation.ValueListImpl;
 
 public class kvbtest {
@@ -21,17 +23,15 @@ public class kvbtest {
 	 */
 	public static void main(String[] args) {
 		
-		String storePath = "teststore2";
-		File store = new File(storePath);
-		//store.deleteOnExit();
+		// check that multiple instances share same storage:
+		KeyValueBaseImpl k = new KeyValueBaseImpl();
+		KeyValueBaseImpl k2 = new KeyValueBaseImpl();
 		
-		KeyValueBaseImpl k = new KeyValueBaseImpl(storePath, 4096L);
-
 		try {
 			
 
 			k.init("testinitdata");
-			
+			System.out.println(" first read" + k2.read(new KeyImpl(24)));
 			/***
 			 * TEST SCAN 
 			 */
@@ -50,7 +50,15 @@ public class kvbtest {
 			}
 			
 			System.out.println("test read (25): " + k.read(new KeyImpl(25)));
-
+			
+			// try another thread which will try to add a load of keys
+			Thread writer = new Thread(inserter);
+			Thread changer = new Thread(updater);
+			
+			writer.run();
+			changer.run();
+			
+			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -72,4 +80,60 @@ public class kvbtest {
 		}
 	}
 
+	private static Runnable inserter = new Runnable() {
+		KeyValueBaseImpl kvb = new KeyValueBaseImpl();
+		@Override
+		public void run() {
+			int i;
+			for (i = 1; i<1000; i++)
+			{
+				try {
+					if (i % 10 == 0)
+						Thread.sleep(100);
+					
+					kvb.insert(new KeyImpl(i), new ValueListImpl());
+				} catch (KeyAlreadyPresentException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (ServiceNotInitializedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			
+		}
+	};
+	
+	private static Runnable updater = new Runnable() {
+		KeyValueBaseImpl kvb = new KeyValueBaseImpl();
+		@Override
+		public void run() {
+			int i;
+			for (i = 1; i<1000; i++)
+			{
+				try {
+					ValueListImpl newValue = new ValueListImpl();
+					newValue.add(new ValueImpl(i));
+					kvb.update(new KeyImpl(i), newValue);
+					
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (ServiceNotInitializedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (KeyNotFoundException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			
+		}
+	};
 }

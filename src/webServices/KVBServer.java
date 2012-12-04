@@ -32,8 +32,7 @@ public class KVBServer extends KeyValueBaseImpl {
 
 	public KVBServer()
 	{
-		// default parameters
-		super("teststore", 4096);
+		super();
 	}
 	
 

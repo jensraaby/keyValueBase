@@ -5,6 +5,9 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.BufferOverflowException;
 import java.nio.channels.FileChannel;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 
 import keyValueBaseInterfaces.MemoryMappedFile;
 import keyValueBaseInterfaces.Store;
@@ -17,6 +20,12 @@ public class StoreImpl implements Store
 	 */
 	private MemoryMappedFile memory;
 	private RandomAccessFile raf;
+	
+	// Locking: parallel reads are OK.
+	private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+	private ReadLock r = lock.readLock();
+	private WriteLock w = lock.writeLock();
+	
 	/**
 	 * 
 	 * @param filePath

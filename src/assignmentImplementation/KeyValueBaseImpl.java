@@ -18,10 +18,13 @@ import keyValueBaseInterfaces.Predicate;
 
 public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 
+	private static final String filePath = "kvbstore";
+	private static final long memorySize = 1024*1024*4L;
+	
 	/**
 	 * Index manages the data storage layers
 	 */
-	private IndexImpl index;
+	private static IndexImpl index = new IndexImpl(filePath, memorySize);
 
 	/**
 	 * We need to track state - mainly to prevent access during initialisation
@@ -33,13 +36,12 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 		UNINITIALISED, INITIALISING, READY
 	}
 
-	private State currentState = State.UNINITIALISED;
+	private static State currentState = State.UNINITIALISED;
 
 	/**
 	 * Constructor: creates index with specified size and file location
 	 */
-	public KeyValueBaseImpl(String filePath, long memorySize) {
-		index = new IndexImpl(filePath, memorySize);
+	public KeyValueBaseImpl() {
 	}
 
 	/**
@@ -79,10 +81,11 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 				// handle first line:
 				if ((line = reader.readLine()) != null) {
 					String[] split = line.split(whitespace);
-					if (split.length > 2)
+					if (split.length > 2) {
+						// TODO: either throw exception or skip this line
 						throw new ServiceInitializingException(
 								"Badly formatted file - each line should contain a key (integer) and a value (integer)");
-
+					}
 					KeyImpl key = parseKey(split[0]);
 					ValueImpl value = parseValue(split[1]);
 					ValueListImpl vl = new ValueListImpl();
@@ -225,13 +228,13 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 	// UTILITY METHODS
 
 	// Parse a string to a key
-	private KeyImpl parseKey(String s) {
+	private KeyImpl parseKey(String s) throws NumberFormatException {
 		int id = Integer.parseInt(s);
 		return new KeyImpl(new Integer(id));
 	}
 
 	// Parse a string to value
-	private ValueImpl parseValue(String s) {
+	private ValueImpl parseValue(String s) throws NumberFormatException {
 		int value = Integer.parseInt(s);
 		return new ValueImpl(value);
 	}

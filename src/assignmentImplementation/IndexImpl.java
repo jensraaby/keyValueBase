@@ -9,9 +9,11 @@ import java.util.NavigableMap;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import com.sun.org.apache.bcel.internal.generic.AllocationInstruction;
 import com.sun.source.tree.SynchronizedTree;
 
 import keyValueBaseExceptions.BeginGreaterThanEndException;
@@ -23,8 +25,9 @@ import keyValueBaseInterfaces.Store;
 
 /**
  * IndexImpl implements a basic memory map over a StoreImpl object. It uses a
- * Reentrant locking scheme to enforce atomicity No reads are allowed during any
- * write operations No writes are allowed during reads
+ * Reentrant locking scheme to enforce atomicity.
+ * 
+ * TODO local locking per key
  * 
  * @author jens
  * 
@@ -42,7 +45,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	private Store storage;
 
 	// Index data structures:
-	private Map<KeyImpl, Space> allocatedSpaces;
+	private ConcurrentSkipListMap<KeyImpl, Space> allocatedSpaces;
 	private TreeMap<Long, Long> freeSpaces;
 
 	// Utilities:
@@ -52,6 +55,8 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	private ReentrantReadWriteLock rwl = new ReentrantReadWriteLock(true);
 	private final Lock r = rwl.readLock();
 	private final Lock w = rwl.writeLock();
+
+	private Long offset;
 
 	/**
 	 * Constructor - creates storage and initialises data structures
@@ -63,7 +68,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		w.lock();
 		try {
 			storage = new StoreImpl(storePath, size);
-			allocatedSpaces = new TreeMap<KeyImpl, Space>();
+			allocatedSpaces = new ConcurrentSkipListMap<KeyImpl, Space>();
 			freeSpaces = new TreeMap<Long, Long>();
 			freeSpaces.put(0L, size);
 		} catch (Exception ex) {
@@ -82,32 +87,23 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	public void insert(KeyImpl k, ValueListImpl v)
 			throws KeyAlreadyPresentException, IOException {
 
-		w.lock();
 		try {
 			if (allocatedSpaces.containsKey(k))
 				throw new KeyAlreadyPresentException(k);
 			else {
-
-				// Record prior memory table information
-				long countFreespaces = getFreeSpace();
-				int countAllocations = allocatedSpaces.size();
 
 				// serialise valuelist to byte array
 				byte[] data = serializer.toByteArray(v);
 
 				// allocate space - this throws an IO exception if there is not
 				// enough free space
-				long offset = allocateSpace(k, data.length);
-
+				allocateSpace(k, data.length);
 				// perform the write
-				storage.write(offset, data);
+				storage.write(allocatedSpaces.get(k).getOffset(), data);
 
-				// POSTCONDITION: Check that the tables were correctly updated
-				assert (countFreespaces == getFreeSpace());
-				assert (countAllocations == allocatedSpaces.size() + 1);
 			}
 		} finally {
-			w.unlock();
+			// unused cleanup
 		}
 
 	}
@@ -268,23 +264,26 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	@Override
 	public List<ValueListImpl> scan(KeyImpl begin, KeyImpl end)
 			throws BeginGreaterThanEndException, IOException {
-		// TODO Auto-generated method stub
-		r.lock();
-		List<ValueListImpl> values = new ArrayList<ValueListImpl>();
-		try {
 
-			for (KeyImpl k : allocatedSpaces.keySet()) {
-				if (k.compareTo(begin) >= 0 && k.compareTo(end) <= 0) {
+		if (end.compareTo(begin) == -1)
+			throw new BeginGreaterThanEndException(begin, end);
+		else {
+			List<ValueListImpl> values = new ArrayList<ValueListImpl>();
+
+			// loop over a submap of the allocated Spaces:
+			for (KeyImpl k : allocatedSpaces.subMap(begin, true, end, true)
+					.keySet()) {
+
+				try {
 					values.add(get(k));
+				} catch (KeyNotFoundException e) {
+					// Theoretically should not happen
+					// the keys have been selected based on the state of the Map
 				}
 			}
-		} catch (KeyNotFoundException e) {
-			// should never occur - but could be thrown by get method
-		} finally {
-			// locking implemented by get method?
-			r.unlock();
+			return values;
+
 		}
-		return values;
 
 	}
 
@@ -375,10 +374,10 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	}
 
 	/**
-	 * Find a space to fit the given key - store the location and return the
-	 * offset
+	 * Find a space to fit the given key and size
 	 * 
-	 * This method deals with finding free space and rearranging allocations
+	 * This method deals with finding free space and inserting the space into
+	 * the allocation map
 	 * 
 	 * @param k
 	 *            the key to map
@@ -387,12 +386,8 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 * @return the memory offset to store the data
 	 * @throws Exception
 	 */
-	private long allocateSpace(KeyImpl k, int size) throws IOException {
-
-		w.lock();
+	private void allocateSpace(KeyImpl k, int size) throws IOException {
 		try {
-			// Create space that fits this data:
-			Space toAllocate = new Space(size);
 
 			// find the free space that is smallest possible space to fit
 			// this new data:
@@ -401,8 +396,8 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 				long selectedOffset = findSpace(size);
 
 				if (selectedOffset >= 0) {
-					// set the location for the data
-					toAllocate.setOffset(selectedOffset);
+					// set the location and size for the data
+					Space toAllocate = new Space(size, selectedOffset);
 
 					// remove the old free space
 					long freeSize = freeSpaces.remove(selectedOffset);
@@ -413,14 +408,13 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 					// update allocation table
 					allocatedSpaces.put(k, toAllocate);
 
-					return toAllocate.getOffset();
 				} else {
 					throw new IOException(
 							"Not enough free space to hold data for key " + k);
 				}
 			}
 		} finally {
-			w.unlock();
+			// clean up area - not needed
 		}
 
 	}
@@ -431,21 +425,22 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 * @return the current total free space
 	 */
 	public long getFreeSpace() {
-		r.lock();
-		try {
-			long total = 0;
-			for (long s : freeSpaces.values()) {
-				total += s;
-			}
+		synchronized (freeSpaces) {
+			try {
+				long total = 0;
+				for (long s : freeSpaces.values()) {
+					total += s;
+				}
 
-			return total;
-		} finally {
-			r.unlock();
+				return total;
+			} finally {
+			}
 		}
 	}
 
 	/**
-	 * Find a space in memory to insert specified size
+	 * Find a space in memory to insert specified size TODO: improve by creating
+	 * an exception instead of invalid value
 	 * 
 	 * @param size
 	 * @return memory offset
@@ -456,7 +451,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 				if (freeSpaces.get(offset) >= size)
 					return offset;
 			}
-			// invalid space if none found
+			// invalid offset if none found
 			return -1L;
 		}
 
@@ -467,7 +462,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 * so that it can be ordered in a data structure This ordering is based on
 	 * the size (byte length) of the space.
 	 * 
-	 * It can be extended to add access time and locking properties.
+	 * It can be extended to add access time and extra locking properties.
 	 * 
 	 * @author jens
 	 * 
@@ -476,15 +471,6 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 
 		protected Long size; // could occupy entire memory
 		protected Long offset;
-		protected boolean positioned = false;
-
-		// locking mechanism for just this memory space
-		// allows concurrent access to other parts of memory as long as they
-		// don't modify the allocation table
-		// private ReentrantReadWriteLock rwl = new
-		// ReentrantReadWriteLock(true);
-		// /private final Lock r = rwl.readLock();
-		// private final Lock w = rwl.writeLock();
 
 		/**
 		 * Construct a space with specified size and position
@@ -495,20 +481,10 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		 *            Offset
 		 */
 		public Space(int size, long offset) {
+			w.lock();
 			this.size = (long) size;
 			this.offset = offset;
-			this.positioned = true;
-		}
-
-		/**
-		 * Creates a non-positioned space - should not be added to any data
-		 * structures
-		 * 
-		 * @param size
-		 */
-		public Space(int size) {
-			this.size = (long) size;
-			this.positioned = false;
+			w.unlock();
 		}
 
 		/**
@@ -516,12 +492,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		 */
 		@Override
 		public int compareTo(Space s) {
-
-			try {
-				return size.compareTo(s.size);
-			} finally {
-
-			}
+			return size.compareTo(s.size);
 		}
 
 		/**
@@ -537,19 +508,12 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		}
 
 		public long getOffset() {
-			// TODO more graceful handling of non-positioning
-			if (this.positioned)
-				return this.offset;
-			else {
-				return -1L;
-			}
+			return this.offset;
 
 		}
 
 		public void setOffset(Long offset) {
-			this.positioned = true;
-			this.offset = offset;
-
+			this.offset = (long) offset;
 		}
 
 	}
