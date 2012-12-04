@@ -12,6 +12,7 @@ import javax.jws.WebService;
 
 import assignmentImplementation.KeyImpl;
 import assignmentImplementation.KeyValueBaseImpl;
+import assignmentImplementation.ValueImpl;
 import assignmentImplementation.ValueListImpl;
 
 import keyValueBaseExceptions.BeginGreaterThanEndException;
@@ -39,65 +40,74 @@ public class KVBServer extends KeyValueBaseImpl {
 	/* (non-Javadoc)
 	 * @see assignmentImplementation.KeyValueBaseImpl#init(java.lang.String)
 	 */
-	@Override @WebMethod
+	@WebMethod
 	public void init(String serverFilename)
 			throws ServiceAlreadyInitializedException,
 			ServiceInitializingException, FileNotFoundException {
 		// TODO Auto-generated method stub
+		System.out.println("Initialising KVB server with file " + serverFilename);
 		super.init(serverFilename);
 	}
 
 	/* (non-Javadoc)
 	 * @see assignmentImplementation.KeyValueBaseImpl#read(assignmentImplementation.KeyImpl)
 	 */
-	@Override  @WebMethod
-	public ValueListImpl read(KeyImpl k) throws KeyNotFoundException,
+	@WebMethod
+	public ValueListImpl read(int k) throws KeyNotFoundException,
 			IOException, ServiceNotInitializedException {
 		// TODO Auto-generated method stub
-		return super.read(k);
+		return super.read(new KeyImpl(k));
 	}
 
 	/* (non-Javadoc)
 	 * @see assignmentImplementation.KeyValueBaseImpl#insert(assignmentImplementation.KeyImpl, assignmentImplementation.ValueListImpl)
 	 */
-	@Override  @WebMethod
-	public void insert(KeyImpl k, ValueListImpl v)
+	@WebMethod
+	public void insert(int k, int[] v)
 			throws KeyAlreadyPresentException, IOException,
 			ServiceNotInitializedException {
-		// TODO Auto-generated method stub
-		super.insert(k, v);
+		
+		ValueListImpl vl = new ValueListImpl();
+		int i;
+		for (i = 0; i < v.length; i++) {
+			vl.add(new ValueImpl(v[i]));
+		}
+		super.insert(new KeyImpl(k), vl);
 	}
 
 	/* (non-Javadoc)
 	 * @see assignmentImplementation.KeyValueBaseImpl#update(assignmentImplementation.KeyImpl, assignmentImplementation.ValueListImpl)
 	 */
-	@Override  @WebMethod
-	public void update(KeyImpl k, ValueListImpl newV)
+	@WebMethod
+	public void update(int k, int[] newV)
 			throws KeyNotFoundException, IOException,
 			ServiceNotInitializedException {
 		// TODO Auto-generated method stub
-		super.update(k, newV);
+		ValueListImpl vl = new ValueListImpl();
+		int i;
+		for (i = 0; i < newV.length; i++) {
+			vl.add(new ValueImpl(newV[i]));
+		}
+		super.update(new KeyImpl(k), vl);
 	}
 
 	/* (non-Javadoc)
 	 * @see assignmentImplementation.KeyValueBaseImpl#delete(assignmentImplementation.KeyImpl)
 	 */
-	@Override  @WebMethod
-	public void delete(KeyImpl k) throws KeyNotFoundException,
+	@WebMethod
+	public void delete(int k) throws KeyNotFoundException,
 			ServiceNotInitializedException {
-		// TODO Auto-generated method stub
-		super.delete(k);
+		super.delete(new KeyImpl(k));
 	}
 
 	/* (non-Javadoc)
 	 * @see assignmentImplementation.KeyValueBaseImpl#scan(assignmentImplementation.KeyImpl, assignmentImplementation.KeyImpl, keyValueBaseInterfaces.Predicate)
 	 */
-	@Override  @WebMethod
-	public List<ValueListImpl> scan(KeyImpl begin, KeyImpl end,
+	@WebMethod
+	public List<ValueListImpl> scan(int begin, int end,
 			Predicate<ValueListImpl> p) throws IOException,
 			BeginGreaterThanEndException, ServiceNotInitializedException {
-		// TODO Auto-generated method stub
-		return super.scan(begin, end, p);
+		return super.scan(new KeyImpl(begin), new KeyImpl(end), p);
 	}
 
 
