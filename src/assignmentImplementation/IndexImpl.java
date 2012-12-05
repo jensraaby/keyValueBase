@@ -10,12 +10,14 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 
 import com.sun.org.apache.bcel.internal.generic.AllocationInstruction;
-import com.sun.source.tree.SynchronizedTree;
-
 import keyValueBaseExceptions.BeginGreaterThanEndException;
 import keyValueBaseExceptions.KeyAlreadyPresentException;
 import keyValueBaseExceptions.KeyNotFoundException;
@@ -46,17 +48,19 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 
 	// Index data structures:
 	private ConcurrentSkipListMap<KeyImpl, Space> allocatedSpaces;
-	private TreeMap<Long, Long> freeSpaces;
+	private NavigableMap<Long, Long> freeSpaces;
+
+	// lock for freeSpaces structure
+	private ReentrantReadWriteLock freeSpacesLock = new ReentrantReadWriteLock(
+			true);
+	private ReadLock freeread = freeSpacesLock.readLock();
+	private WriteLock freewrite = freeSpacesLock.writeLock();
+
+	// Track which keys are currently being modified (inserted/updated)
+	private ConcurrentSkipListSet<KeyImpl> writingKeys = new ConcurrentSkipListSet<KeyImpl>();
 
 	// Utilities:
 	private ValueSerializerImpl serializer = new ValueSerializerImpl();
-
-	// Concurrency locks - set 'fair' so that requests served in order
-	private ReentrantReadWriteLock rwl = new ReentrantReadWriteLock(true);
-	private final Lock r = rwl.readLock();
-	private final Lock w = rwl.writeLock();
-
-	private Long offset;
 
 	/**
 	 * Constructor - creates storage and initialises data structures
@@ -65,17 +69,17 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 * @param size
 	 */
 	public IndexImpl(String storePath, long size) {
-		w.lock();
+
 		try {
 			storage = new StoreImpl(storePath, size);
 			allocatedSpaces = new ConcurrentSkipListMap<KeyImpl, Space>();
 			freeSpaces = new TreeMap<Long, Long>();
 			freeSpaces.put(0L, size);
 		} catch (Exception ex) {
-			// TODO think about what needs handling!
+
 			ex.printStackTrace();
 		} finally {
-			w.unlock();
+
 		}
 
 	}
@@ -88,18 +92,22 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 			throws KeyAlreadyPresentException, IOException {
 
 		try {
-			if (allocatedSpaces.containsKey(k))
+			if (allocatedSpaces.containsKey(k) || writingKeys.contains(k))
 				throw new KeyAlreadyPresentException(k);
 			else {
+				// mark the key as being written - prevents a second insert
+				// from beginning
+				writingKeys.add(k);
 
 				// serialise valuelist to byte array
 				byte[] data = serializer.toByteArray(v);
 
 				// allocate space - this throws an IO exception if there is not
 				// enough free space
-				allocateSpace(k, data.length);
-				// perform the write
-				storage.write(allocatedSpaces.get(k).getOffset(), data);
+				allocateSpace(k, data);
+
+				// remove the item from the set of currently writing keys
+				writingKeys.remove(k);
 
 			}
 		} finally {
@@ -110,27 +118,18 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 
 	@Override
 	public void remove(KeyImpl k) throws KeyNotFoundException {
-		w.lock();
 		try {
 			// find the allocation
 			if (allocatedSpaces.containsKey(k)) {
-				int numAllocations = allocatedSpaces.size();
 
 				Space toDelete = allocatedSpaces.remove(k);
 
-				System.out.println("adding free space at pos: "
-						+ toDelete.getOffset() + ". Num free: "
-						+ freeSpaces.size());
-
 				addFreeSpace(toDelete.getOffset(), toDelete.getSize());
-
-				// POSTCONDITION: 1 less allocation than before
-				assert (numAllocations == allocatedSpaces.size() + 1);
 
 			} else
 				throw new KeyNotFoundException(k);
 		} finally {
-			w.unlock();
+			// unused
 		}
 	}
 
@@ -141,11 +140,11 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 */
 	public ValueListImpl get(KeyImpl k) throws KeyNotFoundException,
 			IOException {
-		r.lock();
-		try {
-			if (allocatedSpaces.containsKey(k)) {
-				Space locationData = allocatedSpaces.get(k);
 
+		if (allocatedSpaces.containsKey(k)) {
+			Space locationData = allocatedSpaces.get(k);
+
+			try {
 				// this could throw IOException!
 				// nb. Spaces which are allocated have max size MAXINT
 				// Spaces which are free could have 64bit size
@@ -153,31 +152,31 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 						(int) locationData.getSize());
 
 				ValueListImpl vl = serializer.fromByteArray(data);
-
 				return vl;
+			} finally {
+				// unused
 			}
-
-			else {
-				throw new KeyNotFoundException(k);
-			}
-		} finally {
-			r.unlock();
 		}
+
+		else {
+			throw new KeyNotFoundException(k);
+		}
+
 	}
 
 	@Override
 	public void update(KeyImpl k, ValueListImpl v) throws KeyNotFoundException,
 			IOException {
-		w.lock();
-		int numAllocations = allocatedSpaces.size();
-		try {
-			if (allocatedSpaces.containsKey(k)) {
 
-				// serialise the new value:
-				byte[] newValue = serializer.toByteArray(v);
+		if (allocatedSpaces.containsKey(k)) {
 
-				// get the current location data:
-				Space locationData = allocatedSpaces.get(k);
+			// serialise the new value:
+			byte[] newValue = serializer.toByteArray(v);
+
+			// get the current location data:
+			Space locationData = allocatedSpaces.get(k);
+
+			try {
 
 				// find the size of the new and the old value
 				int oldSize = (int) locationData.getSize();
@@ -195,7 +194,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 						Space newSpace = new Space(newSize,
 								locationData.getOffset());
 
-						allocatedSpaces.put(k, newSpace);
+						allocatedSpaces.replace(k, newSpace);
 
 						// Store data
 						storage.write(newSpace.getOffset(),
@@ -213,50 +212,47 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 
 				} else {
 					// If the new data is larger, a new free space is needed
-					synchronized (freeSpaces) {
-						// Find a big enough space:
-						long newOffset = findSpace(newSize); // freeSpaces.higher(new
-																// Space(newSize));
+					freewrite.lock();
+					// Find a big enough space:
+					long newOffset = findSpace(newSize); // freeSpaces.higher(new
+															// Space(newSize));
 
-						if (newOffset >= 0) { // findSpace returns -1L if no
-												// space
-												// found
+					if (newOffset >= 0) { // findSpace returns -1L if no
+											// space
+											// found
 
-							// take the freeSpace so no other operation can use
-							// it
+						// take the freeSpace so no other operation can use
+						// it
 
-							long availableSize = freeSpaces.remove(newOffset);
+						long availableSize = freeSpaces.remove(newOffset);
 
-							Space newAllocationData = new Space(newSize,
-									newOffset);
+						// safe for other threads to access freeSpaces
+						freewrite.unlock();
 
-							// put the data address and write to store
-							allocatedSpaces.put(k, newAllocationData);
-							storage.write(newOffset, newValue);
+						Space newAllocationData = new Space(newSize, newOffset);
 
-							// Replace any free space that we are not using
-							addFreeSpace(newOffset + newSize, availableSize
-									- newSize);
+						// put the data address and write to store
+						allocatedSpaces.replace(k, newAllocationData);
+						storage.write(newOffset, newValue);
 
-							// Set the previous storage space as a free space
-							addFreeSpace(locationData.getOffset(),
-									(long) oldSize);
+						// Replace any free space that we are not using
+						addFreeSpace(newOffset + newSize, availableSize
+								- newSize);
 
-						} else {
-							throw new IOException(
-									"Could not find large enough space in memory");
-						}
+						// Set the previous storage space as a free space
+						addFreeSpace(locationData.getOffset(), (long) oldSize);
+
+					} else {
+						throw new IOException(
+								"Could not find large enough space in memory");
 					}
 				}
-
-			} else {
-				throw new KeyNotFoundException(k);
+			} finally {
+				// unused
 			}
-			// POSTCONDITION: same number of allocations as before
-			assert (numAllocations == allocatedSpaces.size());
 
-		} finally {
-			w.unlock();
+		} else {
+			throw new KeyNotFoundException(k);
 		}
 
 	}
@@ -305,27 +301,17 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 * Internal methods
 	 */
 
-	// Lists all freespaces
-	public String freeSpacesString() {
-		r.lock();
-		String free = "";
-		for (long f : freeSpaces.keySet()) {
-			free = free + f + "[" + freeSpaces.get(f) + "]\n";
-		}
-		r.unlock();
-		return free;
-	}
-
 	/**
 	 * 
-	 * Adding a free space can modify other parts of memory - hence synchronized
-	 * block to protect the data structure
+	 * Adding a free space can modify other parts of memory - hence locking
+	 * needed
 	 * 
 	 * @param size
 	 * @param offset
 	 */
 	private void addFreeSpace(long offset, long size) {
-		synchronized (freeSpaces) {
+		freewrite.lock();
+		try {
 			// note that if size 0 supplied there is no need to perform
 			// insertion!
 			if (size > 0) {
@@ -369,12 +355,14 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 					freeSpaces.put(offset, size);
 				}
 			}
+		} finally {
+			freewrite.unlock();
 		}
 
 	}
 
 	/**
-	 * Find a space to fit the given key and size
+	 * Allocate and write data:
 	 * 
 	 * This method deals with finding free space and inserting the space into
 	 * the allocation map
@@ -384,58 +372,62 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 * @param size
 	 *            the size of the memory to allocate
 	 * @return the memory offset to store the data
-	 * @throws Exception
+	 * @throws KeyAlreadyPresentException
+	 * @throws IOException
 	 */
-	private void allocateSpace(KeyImpl k, int size) throws IOException {
+	private void allocateSpace(KeyImpl k, byte[] data) throws IOException,
+			KeyAlreadyPresentException {
+
 		try {
+			// need to lock the freeSpaces map while allocating
+			freewrite.lock();
 
 			// find the free space that is smallest possible space to fit
 			// this new data:
-			synchronized (freeSpaces) {
+			long size = data.length;
 
-				long selectedOffset = findSpace(size);
+			long selectedOffset = findSpace(size);
 
-				if (selectedOffset >= 0) {
-					// set the location and size for the data
-					Space toAllocate = new Space(size, selectedOffset);
+			if (selectedOffset >= 0) {
 
-					// remove the old free space
-					long freeSize = freeSpaces.remove(selectedOffset);
+				// remove the old free space
+				long freeSize = freeSpaces.remove(selectedOffset);
 
-					// add free space after allocated memory
-					addFreeSpace(selectedOffset + size, freeSize - size);
+				// release the freeSpaces lock as now no other thread can take
+				// the same space
+				freewrite.unlock();
 
-					// update allocation table
-					allocatedSpaces.put(k, toAllocate);
+				// add free space after allocated memory
+				addFreeSpace(selectedOffset + size, freeSize - size);
 
+				// set the location and size for the data
+				Space toAllocate = new Space(data.length, selectedOffset);
+
+				// update allocation table atomically
+				Space inserted = allocatedSpaces.putIfAbsent(k, toAllocate);
+
+				if (inserted == null) {
+					// write the data now that nothing can 'steal' the free
+					// space
+					storage.write(selectedOffset, data);
 				} else {
-					throw new IOException(
-							"Not enough free space to hold data for key " + k);
+					// this should only happen if some locking has gone wrong
+
+					// restore the allocated space as a freespace:
+					addFreeSpace(selectedOffset, size);
+					// nb. this will be merged with the previously created space
+					throw new KeyAlreadyPresentException(k);
 				}
+
+			} else {
+				throw new IOException(
+						"Not enough free space to hold data for key " + k);
 			}
+
 		} finally {
-			// clean up area - not needed
+			// not used
 		}
 
-	}
-
-	/**
-	 * getFreeSpace calculates the total current unassigned memory
-	 * 
-	 * @return the current total free space
-	 */
-	public long getFreeSpace() {
-		synchronized (freeSpaces) {
-			try {
-				long total = 0;
-				for (long s : freeSpaces.values()) {
-					total += s;
-				}
-
-				return total;
-			} finally {
-			}
-		}
 	}
 
 	/**
@@ -446,15 +438,17 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 * @return memory offset
 	 */
 	private long findSpace(long size) {
-		synchronized (freeSpaces) {
+		freeread.lock();
+		try {
 			for (long offset : freeSpaces.keySet()) {
 				if (freeSpaces.get(offset) >= size)
 					return offset;
 			}
-			// invalid offset if none found
-			return -1L;
+		} finally {
+			freeread.unlock();
 		}
-
+		// invalid offset if none found
+		return -1L;
 	}
 
 	/**
@@ -481,10 +475,10 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		 *            Offset
 		 */
 		public Space(int size, long offset) {
-			w.lock();
+
 			this.size = (long) size;
 			this.offset = offset;
-			w.unlock();
+
 		}
 
 		/**
@@ -492,7 +486,12 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		 */
 		@Override
 		public int compareTo(Space s) {
-			return size.compareTo(s.size);
+
+			try {
+				return size.compareTo(s.size);
+			} finally {
+
+			}
 		}
 
 		/**
@@ -500,20 +499,40 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		 */
 
 		public long getSize() {
-			return size;
+
+			try {
+				return size;
+			} finally {
+
+			}
 		}
 
 		public void setSize(long size) {
-			this.size = size;
+
+			try {
+				this.size = size;
+			} finally {
+
+			}
 		}
 
 		public long getOffset() {
-			return this.offset;
+
+			try {
+				return this.offset;
+			} finally {
+
+			}
 
 		}
 
 		public void setOffset(Long offset) {
-			this.offset = (long) offset;
+
+			try {
+				this.offset = (long) offset;
+			} finally {
+
+			}
 		}
 
 	}

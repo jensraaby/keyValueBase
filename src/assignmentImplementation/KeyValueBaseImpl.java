@@ -19,7 +19,7 @@ import keyValueBaseInterfaces.Predicate;
 public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 
 	private static final String filePath = "kvbstore";
-	private static final long memorySize = 1024*1024*4L;
+	private static final long memorySize = 1024*1024*10L;
 	
 	/**
 	 * Index manages the data storage layers
@@ -58,6 +58,7 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 			throws ServiceAlreadyInitializedException,
 			ServiceInitializingException, FileNotFoundException {
 
+		System.out.println("Initialising KVB");
 		// State-based error handling
 		// If the object is already initialised, then throw an exception
 		if (currentState == State.READY)
@@ -154,7 +155,6 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 		if (currentState != State.READY)
 			throw new ServiceNotInitializedException();
 		else {
-			System.out.println("Inserting key " + k);
 			index.insert(k, v);
 		}
 

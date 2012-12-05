@@ -55,8 +55,9 @@ public class kvbtest {
 			Thread writer = new Thread(inserter);
 			Thread changer = new Thread(updater);
 			
-			writer.run();
-			changer.run();
+			System.out.println("Starting threads");
+			writer.start();
+			changer.start();
 			
 			
 		} catch (IOException e) {
@@ -85,13 +86,18 @@ public class kvbtest {
 		@Override
 		public void run() {
 			int i;
-			for (i = 1; i<1000; i++)
+			for (i = 30; i<1000; i++)
 			{
 				try {
-					if (i % 10 == 0)
+					if (i % 10 == 0) {
 						Thread.sleep(100);
+						
+					}
+					ValueListImpl val = new ValueListImpl();
+					val.add(new ValueImpl(i));
+					kvb.insert(new KeyImpl(i), val);
+					kvb.update(new KeyImpl(i), val);
 					
-					kvb.insert(new KeyImpl(i), new ValueListImpl());
 				} catch (KeyAlreadyPresentException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
@@ -104,6 +110,9 @@ public class kvbtest {
 				} catch (InterruptedException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
+				} catch (KeyNotFoundException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
 				}
 			}
 			
@@ -114,13 +123,29 @@ public class kvbtest {
 		KeyValueBaseImpl kvb = new KeyValueBaseImpl();
 		@Override
 		public void run() {
+			System.out.println("running updater");
 			int i;
-			for (i = 1; i<1000; i++)
+			try {
+				Thread.sleep(5000);
+			} catch (InterruptedException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
+			for (i = 30; i<1000; i++)
 			{
 				try {
-					ValueListImpl newValue = new ValueListImpl();
-					newValue.add(new ValueImpl(i));
-					kvb.update(new KeyImpl(i), newValue);
+					if (i % 10 == 0) {
+						Thread.sleep(200);
+//						System.out.println("Waiting 200ms");
+					}
+					ValueListImpl oldvalue = kvb.read(new KeyImpl(i));
+					System.out.println("val for " + i + " is: " + oldvalue);
+//					ValueListImpl newValue = new ValueListImpl();
+//					newValue.add(new ValueImpl(2*i));
+//					kvb.update(new KeyImpl(i), newValue);
+//					ValueListImpl val = kvb.read(new KeyImpl(i));
+//					assert val == newValue;
+//					assert val != oldvalue;
 					
 				} catch (IOException e) {
 					// TODO Auto-generated catch block
@@ -129,6 +154,9 @@ public class kvbtest {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				} catch (KeyNotFoundException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (InterruptedException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}

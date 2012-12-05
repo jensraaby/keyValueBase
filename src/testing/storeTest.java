@@ -36,7 +36,6 @@ public class storeTest {
 			for (int i = 0; i< testread.length; i++) {
 				System.out.print(testread[i] + ", ");
 			}
-			store.closeFile();
 			File f = new File(path);
 			f.delete();
 	

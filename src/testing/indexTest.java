@@ -18,7 +18,7 @@ public class indexTest {
 	 * @param args
 	 */
 	public static void main(String[] args) {
-		IndexImpl testind = new IndexImpl("testfile", 4096);
+		IndexImpl testind = new IndexImpl("testfile", 4096*4);
 		ValueListImpl vl;
 		try {
 			vl = new ValueListImpl();
@@ -31,12 +31,10 @@ public class indexTest {
 			byte[] checksize = vszl.toByteArray(vl);
 			int size1 = checksize.length;
 			
-			long freebefore = testind.getFreeSpace();
 			
-			System.out.println("initial freespace: " + freebefore);
 			
 			try {
-				System.out.print(testind.freeSpacesString());
+				
 				System.out.println("inserting with 2 keys: " + vl);
 				int i, N;
 				N = 10;
@@ -45,7 +43,6 @@ public class indexTest {
 					KeyImpl newKey = new KeyImpl(i);
 					testind.insert(newKey, vl);
 					keys.add(newKey);
-					System.out.print(testind.freeSpacesString());
 
 				}
 				ValueListImpl got = testind.get(keys.get(5));
@@ -53,8 +50,6 @@ public class indexTest {
 				int size2 = vszl.toByteArray(got).length;
 				System.out.println("size of valuelist before: " +  size1 + " after retrieval: " +  size2);
 				
-				long freeafter = testind.getFreeSpace();
-				System.out.println("final freespace: " + freeafter + " difference: " + (freebefore - freeafter));
 
 				
 				vl.add(new ValueImpl(1124125626));
@@ -67,18 +62,16 @@ public class indexTest {
 				ValueListImpl gotAfter = testind.get(keys.get(3));		
 				
 				System.out.println("before value of key3: " + gotBefore + " after: " + gotAfter);
+				assert !gotAfter.toList().equals(gotBefore.toList());
 				
-				System.out.println("final freespace after updating: " + testind.getFreeSpace());
 				System.out.print("removing alternating keys: \n");
 				testind.remove(keys.get(1));
 				for (i = 1; i<N; i+=2) {
 					KeyImpl newKey = new KeyImpl(i);
 					System.out.println("removing key " + i);
 					testind.remove(newKey);
-
 				}
-				
-				System.out.print(testind.freeSpacesString());
+
 				
 
 				
