@@ -6,9 +6,16 @@ import java.util.List;
 
 import keyValueBaseInterfaces.ValueList;
 
+import javax.xml.bind.annotation.XmlRootElement;
+import javax.xml.bind.annotation.XmlAccessorType;
+import javax.xml.bind.annotation.XmlElement;
+
+@XmlRootElement
+@XmlAccessorType
 @SuppressWarnings("serial")
 public class ValueListImpl implements ValueList<ValueImpl>{
 	
+	@XmlElement
 	private List<ValueImpl> vlist = new ArrayList<ValueImpl>();
 	
 	@Override

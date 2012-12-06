@@ -19,7 +19,7 @@ import keyValueBaseInterfaces.Predicate;
 public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 
 	private static final String filePath = "kvbstore";
-	private static final long memorySize = 1024*1024*10L;
+	private static final long memorySize = 1024*1024*1024L;
 	
 	/**
 	 * Index manages the data storage layers
@@ -77,7 +77,7 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 				BufferedReader reader = new BufferedReader(new FileReader(
 						serverFilename));
 				String line = null;
-				String whitespace = "[ ]+";
+				String whitespace = "[ \t]+";
 
 				// handle first line:
 				if ((line = reader.readLine()) != null) {
