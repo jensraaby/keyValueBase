@@ -90,7 +90,7 @@ public class kvbtest {
 			{
 				try {
 					if (i % 10 == 0) {
-						Thread.sleep(100);
+						
 						
 					}
 					ValueListImpl val = new ValueListImpl();
@@ -105,9 +105,6 @@ public class kvbtest {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				} catch (ServiceNotInitializedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (InterruptedException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				} catch (KeyNotFoundException e) {
