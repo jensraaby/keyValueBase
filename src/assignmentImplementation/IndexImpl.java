@@ -579,7 +579,6 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 
 	}
 
-
 	/**
 	 * Class to aid locking for specific keys
 	 * 
@@ -666,9 +665,11 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 			synchronized (mutex) {
 
 				ManagedLock l = keylocks.get(k);
-				l.count--;
-				if (l.count == 0)
-					keylocks.remove(k);
+				if (l != null) {
+					l.count--;
+					if (l.count == 0)
+						keylocks.remove(k);
+				}
 			}
 		}
 	}
