@@ -11,6 +11,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 
+import org.deuce.Atomic;
+
 import keyValueBaseExceptions.BeginGreaterThanEndException;
 import keyValueBaseExceptions.KeyAlreadyPresentException;
 import keyValueBaseExceptions.KeyNotFoundException;
@@ -22,7 +24,6 @@ import keyValueBaseInterfaces.Store;
  * IndexImpl implements a basic memory map over a StoreImpl object. It uses a
  * Reentrant locking scheme to enforce atomicity.
  * 
- * TODO local locking per key
  * 
  * @author jens
  * 
@@ -43,14 +44,11 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	private ConcurrentSkipListMap<KeyImpl, Space> allocatedSpaces;
 	private NavigableMap<Long, Long> freeSpaces;
 
-	// lock for freeSpaces structure
+	// locks for freeSpaces map
 	private ReentrantReadWriteLock freeSpacesLock = new ReentrantReadWriteLock(
 			true);
 	private ReadLock freeread = freeSpacesLock.readLock();
 	private WriteLock freewrite = freeSpacesLock.writeLock();
-
-	// Track which keys are currently being modified (inserted/updated)
-	private ConcurrentSkipListSet<KeyImpl> writingKeys = new ConcurrentSkipListSet<KeyImpl>();
 
 	// Utilities:
 	private ValueSerializerImpl serializer = new ValueSerializerImpl();
@@ -80,17 +78,14 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	/**
 	 * Insert a key and value in the data store and update memory table
 	 */
-	@Override
+	@Override @Atomic
 	public void insert(KeyImpl k, ValueListImpl v)
 			throws KeyAlreadyPresentException, IOException {
 
 		try {
-			if (allocatedSpaces.containsKey(k) || writingKeys.contains(k))
+			if (allocatedSpaces.containsKey(k))
 				throw new KeyAlreadyPresentException(k);
 			else {
-				// mark the key as being written - prevents a second insert
-				// from beginning
-				writingKeys.add(k);
 
 				// serialise valuelist to byte array
 				byte[] data = serializer.toByteArray(v);
@@ -99,8 +94,6 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 				// enough free space
 				allocateSpace(k, data);
 
-				// remove the item from the set of currently writing keys
-				writingKeys.remove(k);
 
 			}
 		} finally {
@@ -109,7 +102,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 
 	}
 
-	@Override
+	@Override @Atomic
 	public void remove(KeyImpl k) throws KeyNotFoundException {
 		try {
 			// find the allocation
@@ -126,7 +119,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		}
 	}
 
-	@Override
+	@Override @Atomic
 	/**
 	 * Returns the value list for the specified key
 	 * @param k key to lookup
@@ -157,7 +150,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 
 	}
 
-	@Override
+	@Override @Atomic
 	public void update(KeyImpl k, ValueListImpl v) throws KeyNotFoundException,
 			IOException {
 
