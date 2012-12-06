@@ -593,7 +593,6 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 * 
 	 */
 	private class KeyLock {
-		public AtomicInteger readers = new AtomicInteger(0);
 		private final Lock l;
 		private final KeyImpl key;
 		private final KeyLockManager manager;

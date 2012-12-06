@@ -20,8 +20,9 @@ public class kvbtest {
 
 	/**
 	 * @param args
+	 * @throws InterruptedException 
 	 */
-	public static void main(String[] args) {
+	public static void main(String[] args) throws InterruptedException {
 		
 		// check that multiple instances share same storage:
 		KeyValueBaseImpl k = new KeyValueBaseImpl();
@@ -53,12 +54,17 @@ public class kvbtest {
 			
 			// try another thread which will try to add a load of keys
 			Thread writer = new Thread(inserter);
+			Thread writer2 = new Thread(inserter);
+
 			Thread changer = new Thread(updater);
-			
+			Thread changer2 = new Thread(updater);
+
 			System.out.println("Starting threads");
 			writer.start();
 			changer.start();
-			
+//			writer2.start();
+			Thread.sleep(20);
+			changer2.start();
 			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
@@ -91,12 +97,12 @@ public class kvbtest {
 				try {
 					if (i % 10 == 0) {
 						
-						
+						System.out.println("inserting key " + i);
 					}
 					ValueListImpl val = new ValueListImpl();
 					val.add(new ValueImpl(i));
 					kvb.insert(new KeyImpl(i), val);
-					kvb.update(new KeyImpl(i), val);
+//					kvb.update(new KeyImpl(i), val);
 					
 				} catch (KeyAlreadyPresentException e) {
 					// TODO Auto-generated catch block
@@ -105,9 +111,6 @@ public class kvbtest {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				} catch (ServiceNotInitializedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (KeyNotFoundException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
@@ -123,7 +126,7 @@ public class kvbtest {
 			System.out.println("running updater");
 			int i;
 			try {
-				Thread.sleep(5000);
+				Thread.sleep(1000);
 			} catch (InterruptedException e1) {
 				// TODO Auto-generated catch block
 				e1.printStackTrace();
@@ -131,18 +134,17 @@ public class kvbtest {
 			for (i = 30; i<1000; i++)
 			{
 				try {
+					ValueListImpl oldvalue = kvb.read(new KeyImpl(i));
 					if (i % 10 == 0) {
 						Thread.sleep(200);
-//						System.out.println("Waiting 200ms");
+						System.out.println("val for " + i + " is: " + oldvalue);
 					}
-					ValueListImpl oldvalue = kvb.read(new KeyImpl(i));
-					System.out.println("val for " + i + " is: " + oldvalue);
-//					ValueListImpl newValue = new ValueListImpl();
-//					newValue.add(new ValueImpl(2*i));
-//					kvb.update(new KeyImpl(i), newValue);
-//					ValueListImpl val = kvb.read(new KeyImpl(i));
-//					assert val == newValue;
-//					assert val != oldvalue;
+					
+					
+					ValueListImpl newValue = new ValueListImpl();
+					newValue.add(new ValueImpl(2*i));
+					kvb.update(new KeyImpl(i), newValue);
+					ValueListImpl val = kvb.read(new KeyImpl(i));
 					
 				} catch (IOException e) {
 					// TODO Auto-generated catch block
