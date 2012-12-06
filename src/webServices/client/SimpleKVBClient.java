@@ -57,7 +57,7 @@ public class SimpleKVBClient {
 			
 			//webServices.client.ValueListImpl a = null;
 			
-			//servicePort.insert(new webServices.client.KeyImpl(333), new webServices.client.ValueListImpl());
+			servicePort.insert(new webServices.client.KeyImpl(333), new webServices.client.ValueListImpl());
 			//servicePort.insert(0, a);
 			
 			
@@ -68,6 +68,9 @@ public class SimpleKVBClient {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (ServiceNotInitializedException_Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (KeyAlreadyPresentException_Exception e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} 
