@@ -205,11 +205,19 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 
 	}
 
+	/**
+	 * Extensions - may be needed for passing assignment?
+	 */
+	
+	
 	@Override
 	public List<ValueListImpl> atomicScan(KeyImpl begin, KeyImpl end,
 			Predicate<ValueListImpl> p) throws IOException,
 			BeginGreaterThanEndException, ServiceNotInitializedException {
 		// TODO Auto-generated method stub
+		
+		// get locks on all the keys, then combine values
+		// will be slow if lots of concurrent requests on the same keys
 		if (currentState != State.READY)
 			throw new ServiceNotInitializedException();
 		return null;
@@ -219,6 +227,7 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 	public void bulkPut(List<Pair<KeyImpl, ValueListImpl>> mappings)
 			throws IOException, ServiceNotInitializedException {
 		// TODO Auto-generated method stub
+		// should be very straightforward to implement, but does it need to be atomic?
 		if (currentState != State.READY)
 			throw new ServiceNotInitializedException();
 
