@@ -6,8 +6,6 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
@@ -86,15 +84,20 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 
 		KeyLock lock = null;
 		try {
-			if (allocatedSpaces.containsKey(k))
-				throw new KeyAlreadyPresentException(k);
-			else {
 
-				// obtain lock
+			// obtain write lock before trying insert
+			// this ensures if there are concurrent insert calls on same key :
+			// one will finish before the other one fails before being able to
+			// write
 
-				lock = keyLockManager.getLock(k);
-				lock.lock();
-				try {
+			lock = keyLockManager.getLock(k);
+			lock.startWrite();
+
+			try {
+				if (allocatedSpaces.containsKey(k))
+					throw new KeyAlreadyPresentException(k);
+				else {
+
 					// serialise valuelist to byte array
 					byte[] data = serializer.toByteArray(v);
 
@@ -102,12 +105,13 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 					// not
 					// enough free space
 					allocateSpace(k, data);
-				} finally {
-					// release lock
-					lock.unlock();
 				}
 
+			} finally {
+				// release lock
+				lock.stopWrite();
 			}
+
 		} finally {
 			if (lock != null) {
 				lock.releaseLock();
@@ -124,7 +128,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		KeyLock lock = null;
 		try {
 			lock = keyLockManager.getLock(k);
-			lock.lock();
+			lock.startWrite();
 			try {
 				// find the allocation
 				if (allocatedSpaces.containsKey(k)) {
@@ -136,7 +140,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 				} else
 					throw new KeyNotFoundException(k);
 			} finally {
-				lock.unlock();
+				lock.stopWrite();
 			}
 		} finally {
 			if (lock != null) {
@@ -158,7 +162,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 
 			try {
 				lock = keyLockManager.getLock(k);
-				lock.lock();
+				lock.startRead();
 
 				try {
 					Space locationData = allocatedSpaces.get(k);
@@ -171,7 +175,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 					ValueListImpl vl = serializer.fromByteArray(data);
 					return vl;
 				} finally {
-					lock.unlock();
+					lock.stopRead();
 				}
 			} finally {
 				if (lock != null)
@@ -194,7 +198,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 			KeyLock lock = null;
 			try {
 				lock = keyLockManager.getLock(k);
-				lock.lock();
+				lock.startWrite();
 
 				try {
 					// serialise the new value:
@@ -276,7 +280,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 						}
 					}
 				} finally {
-					lock.unlock();
+					lock.stopWrite();
 				}
 
 			} finally {
@@ -305,7 +309,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 					.keySet()) {
 				try {
 					lock = keyLockManager.getLock(k);
-					lock.lock();
+					lock.startRead();
 					try {
 						values.add(get(k));
 					} catch (KeyNotFoundException e) {
@@ -313,7 +317,7 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 						// the keys have been selected based on the state of the
 						// Map
 					} finally {
-						lock.unlock();
+						lock.stopRead();
 					}
 				} finally {
 					lock.releaseLock();
@@ -328,14 +332,86 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	@Override
 	public List<ValueListImpl> atomicScan(KeyImpl begin, KeyImpl end)
 			throws BeginGreaterThanEndException, IOException {
-		// TODO Auto-generated method stub
-		return null;
+		if (end.compareTo(begin) == -1)
+			throw new BeginGreaterThanEndException(begin, end);
+
+		else {
+			// loop over all range to acquire locks, then call scan to get
+			// data
+			try {
+				KeyLock lock = null;
+				for (KeyImpl k : allocatedSpaces.subMap(begin, true, end, true)
+						.keySet()) {
+					lock = keyLockManager.getLock(k);
+					lock.startRead();
+				}
+				// use normal scan - the current thread already has the locks
+				List<ValueListImpl> results = scan(begin, end);
+
+				return results;
+			} finally {
+				KeyLock lock = null;
+				// now unlock all the keys
+				for (KeyImpl k : allocatedSpaces.subMap(begin, true, end, true)
+						.keySet()) {
+					lock = keyLockManager.getLock(k);
+					lock.stopRead();
+					lock.releaseLock();
+				}
+			}
+		}
 	}
 
+	/**
+	 * BulkPut inserts a list of key-value pairs. If any keys already exist,
+	 * they are updated. Otherwise they are inserted.
+	 * 
+	 */
 	@Override
 	public void bulkPut(List<Pair<KeyImpl, ValueListImpl>> keys)
 			throws IOException {
-		// TODO Auto-generated method stub
+
+		List<Pair<KeyImpl, ValueListImpl>> newSet = new ArrayList<Pair<KeyImpl, ValueListImpl>>();
+		List<Pair<KeyImpl, ValueListImpl>> oldSet = new ArrayList<Pair<KeyImpl, ValueListImpl>>();
+		try {
+			for (Pair<KeyImpl, ValueListImpl> mapping : keys) {
+				try {
+					// get old value if present
+					ValueListImpl v = get(mapping.getKey());
+					oldSet.add(new Pair<KeyImpl, ValueListImpl>(mapping
+							.getKey(), v));
+					// update
+					update(mapping.getKey(), mapping.getValue());
+				} catch (KeyNotFoundException e) {
+					// if a key was not found, then insert it
+					insert(mapping.getKey(), mapping.getValue());
+					newSet.add(mapping);
+				}
+
+			}
+		} catch (KeyAlreadyPresentException e) {
+			// NOTE this should not be thrown as we handle it explicitly above
+			e.printStackTrace();
+		} catch (Exception ex) {
+			// unknown exception occurred: rollback:
+			for (Pair<KeyImpl, ValueListImpl> mapping : newSet) {
+				try {
+					remove(mapping.getKey());
+				} catch (KeyNotFoundException e) {
+					// nothing to do if not found
+				}
+			}
+			for (Pair<KeyImpl, ValueListImpl> mapping : oldSet) {
+				try {
+					update(mapping.getKey(), mapping.getValue());
+				} catch (KeyNotFoundException e) {
+					// nothing to do if not found
+				}
+			}
+			// pass along if the exception is an IOexception
+			if (ex instanceof IOException)
+				throw new IOException();
+		}
 
 	}
 
@@ -592,22 +668,30 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	 * 
 	 */
 	private class KeyLock {
-		private final Lock l;
+		private final ReentrantReadWriteLock l;
 		private final KeyImpl key;
 		private final KeyLockManager manager;
 
-		public KeyLock(KeyImpl k, Lock l, KeyLockManager klm) {
+		public KeyLock(KeyImpl k, ReentrantReadWriteLock l, KeyLockManager klm) {
 			this.l = l;
 			this.key = k;
 			this.manager = klm;
 		}
 
-		public void lock() {
-			l.lock();
+		public void startRead() {
+			l.readLock().lock();
 		}
 
-		public void unlock() {
-			l.unlock();
+		public void stopRead() {
+			l.readLock().unlock();
+		}
+
+		public void startWrite() {
+			l.writeLock().lock();
+		}
+
+		public void stopWrite() {
+			l.writeLock().unlock();
 		}
 
 		public void releaseLock() {
@@ -633,11 +717,10 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 	private class KeyLockManager {
 		private class ManagedLock {
 			int count = 0;
-			final Lock l = new ReentrantLock();
+			final ReentrantReadWriteLock l = new ReentrantReadWriteLock();
 		}
 
-		private final TreeMap<KeyImpl, ManagedLock> keylocks = new TreeMap<KeyImpl, ManagedLock>();
-		private final Object mutex = new Object();
+		private final ConcurrentSkipListMap<KeyImpl, ManagedLock> keylocks = new ConcurrentSkipListMap<KeyImpl, ManagedLock>();
 
 		/**
 		 * 
@@ -645,15 +728,14 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		 * @return
 		 */
 		public KeyLock getLock(KeyImpl k) {
-			synchronized (mutex) {
-				ManagedLock l = keylocks.get(k);
-				if (l == null) {
-					l = new ManagedLock();
-					keylocks.put(k, l);
-				}
-				l.count++;
-				return new KeyLock(k, l.l, this);
+			ManagedLock l = keylocks.get(k);
+			if (l == null) {
+				l = new ManagedLock();
+				keylocks.put(k, l);
 			}
+			l.count++;
+			return new KeyLock(k, l.l, this);
+
 		}
 
 		/**
@@ -662,14 +744,12 @@ public class IndexImpl implements Index<KeyImpl, ValueListImpl> {
 		 * @param k
 		 */
 		public void releaseLock(KeyImpl k) {
-			synchronized (mutex) {
 
-				ManagedLock l = keylocks.get(k);
-				if (l != null) {
-					l.count--;
-					if (l.count == 0)
-						keylocks.remove(k);
-				}
+			ManagedLock l = keylocks.get(k);
+			if (l != null) {
+				l.count--;
+				if (l.count == 0)
+					keylocks.remove(k);
 			}
 		}
 	}

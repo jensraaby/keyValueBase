@@ -40,12 +40,12 @@ public class kvbtest {
 
 				@Override
 				public boolean evaluate(ValueListImpl input) {
-					// just returns all valuelistimpl
+//					return (input.equals(new ValueImpl(25)));
 					return true;
 				}
 			};
 			System.out.println("Scanning memory");
-			List<ValueListImpl> scantest = k.scan(new KeyImpl(1), new KeyImpl(25), p);
+			List<ValueListImpl> scantest = k.atomicScan(new KeyImpl(1), new KeyImpl(25), p);
 			for (ValueListImpl vlist : scantest) {
 				System.out.println(vlist);
 			}

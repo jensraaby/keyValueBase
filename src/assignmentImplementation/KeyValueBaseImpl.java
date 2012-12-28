@@ -6,6 +6,8 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
+
 import keyValueBaseExceptions.BeginGreaterThanEndException;
 import keyValueBaseExceptions.KeyAlreadyPresentException;
 import keyValueBaseExceptions.KeyNotFoundException;
@@ -19,8 +21,8 @@ import keyValueBaseInterfaces.Predicate;
 public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 
 	private static final String filePath = "kvbstore";
-	private static final long memorySize = 1024*1024*1024L;
-	
+	private static final long memorySize = 1024 * 1024 * 1024L;
+
 	/**
 	 * Index manages the data storage layers
 	 */
@@ -37,6 +39,8 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 	}
 
 	private static State currentState = State.UNINITIALISED;
+	// Use a lock to protect the service during initialisation
+	protected static ReentrantLock initializationLock = new ReentrantLock();
 
 	/**
 	 * Constructor: creates index with specified size and file location
@@ -58,81 +62,92 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 			throws ServiceAlreadyInitializedException,
 			ServiceInitializingException, FileNotFoundException {
 
-		System.out.println("Initialising KVB");
-		// State-based error handling
-		// If the object is already initialised, then throw an exception
-		if (currentState == State.READY)
-			throw new ServiceAlreadyInitializedException();
+		// lock the initialization
+		initializationLock.lock();
+		displayMessage("Initialising KVB");
+		try {
 
-		// If a new request comes during initialisation, we need to raise an
-		// exception
-		else if (currentState == State.INITIALISING)
-			throw new ServiceInitializingException();
+			// State-based error handling
+			// If the object is already initialised, then throw an exception
+			if (currentState == State.READY)
+				throw new ServiceAlreadyInitializedException();
 
-		else {
-			// set state to initialising immediately
-			currentState = State.INITIALISING;
-
-			try {
-				BufferedReader reader = new BufferedReader(new FileReader(
-						serverFilename));
-				String line = null;
-				String whitespace = "[ \t]+";
-
-				// handle first line:
-				if ((line = reader.readLine()) != null) {
-					String[] split = line.split(whitespace);
-					if (split.length > 2) {
-						// TODO: either throw exception or skip this line
-						throw new ServiceInitializingException(
-								"Badly formatted file - each line should contain a key (integer) and a value (integer)");
-					}
-					KeyImpl key = parseKey(split[0]);
-					ValueImpl value = parseValue(split[1]);
-					ValueListImpl vl = new ValueListImpl();
-					vl.add(value);
-					// loop over remaining lines
-					while ((line = reader.readLine()) != null) {
-
-						split = line.split(whitespace);
-						KeyImpl nextKey = parseKey(split[0]);
-						ValueImpl nextValue = parseValue(split[1]);
-
-						if (nextKey.compareTo(key) == 0) {
-							// Same key as before, append the value
-							vl.add(nextValue);
-						} else {
-							// insert the last key and start the next one
-							index.insert(key, vl);
-							key = nextKey;
-							vl = new ValueListImpl();
-							vl.add(nextValue);
-
-							// if end of file, won't import this value
-						}
-
-					}
-					// final value insertion
-					index.insert(key, vl);
-				}
-
-				reader.close();
-
-				System.out.println("Finished parsing input file " + serverFilename);
-				currentState = State.READY;
-
-			} catch (FileNotFoundException ex) {
-				throw new FileNotFoundException(); // pass along to caller
-			} catch (IOException x) {
-				System.err.format("IOException: %s%n", x);
+			// If a new request comes during initialisation, we need to raise an
+			// exception. This should not be reached thanks to the lock
+			else if (currentState == State.INITIALISING)
 				throw new ServiceInitializingException();
-			} catch (KeyAlreadyPresentException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			} finally {
-				// any clean up handled here - whether success or failure
-				System.out.println("exiting init");
+
+			else {
+				// set state to initialising immediately
+				currentState = State.INITIALISING;
+
+				try {
+					BufferedReader reader = new BufferedReader(new FileReader(
+							serverFilename));
+					String line = null;
+					String whitespace = "[ \t]+";
+
+					// handle first line:
+					if ((line = reader.readLine()) != null) {
+						String[] split = line.split(whitespace);
+						if (split.length > 2) {
+							// TODO: either throw exception or skip this line
+							throw new ServiceInitializingException(
+									"Badly formatted file - each line should contain a key (integer) and a value (integer)");
+						}
+						KeyImpl key = parseKey(split[0]);
+						ValueImpl value = parseValue(split[1]);
+						ValueListImpl vl = new ValueListImpl();
+						vl.add(value);
+						// loop over remaining lines
+						while ((line = reader.readLine()) != null) {
+
+							split = line.split(whitespace);
+							KeyImpl nextKey = parseKey(split[0]);
+							ValueImpl nextValue = parseValue(split[1]);
+
+							if (nextKey.compareTo(key) == 0) {
+								// Same key as before, append the value
+								vl.add(nextValue);
+							} else {
+								// insert the last key and start the next one
+								index.insert(key, vl);
+								key = nextKey;
+								vl = new ValueListImpl();
+								vl.add(nextValue);
+
+								// if end of file, won't import this value
+							}
+
+						}
+						// final value insertion
+						index.insert(key, vl);
+					}
+
+					reader.close();
+
+					displayMessage("Finished parsing input file "
+							+ serverFilename);
+					currentState = State.READY;
+
+				} catch (FileNotFoundException ex) {
+					currentState = State.UNINITIALISED;
+					throw new FileNotFoundException(); // pass along to caller
+				} catch (IOException x) {
+					currentState = State.UNINITIALISED;
+					System.err.format("IOException: %s%n", x);
+					throw new ServiceInitializingException();
+				} catch (KeyAlreadyPresentException e) {
+					currentState = State.UNINITIALISED;
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} finally {
+					// any clean up handled here - whether success or failure
+					displayMessage("finished initialisation");
+				}
 			}
+		} finally {
+			initializationLock.unlock();
 		}
 
 	}
@@ -208,28 +223,36 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 	/**
 	 * Extensions - may be needed for passing assignment?
 	 */
-	
-	
+
 	@Override
 	public List<ValueListImpl> atomicScan(KeyImpl begin, KeyImpl end,
 			Predicate<ValueListImpl> p) throws IOException,
 			BeginGreaterThanEndException, ServiceNotInitializedException {
-		// TODO Auto-generated method stub
-		
-		// get locks on all the keys, then combine values
-		// will be slow if lots of concurrent requests on the same keys
+
 		if (currentState != State.READY)
 			throw new ServiceNotInitializedException();
-		return null;
+
+		// atomically retrieve all the keys - may take some time if contention
+		// issues
+		List<ValueListImpl> all = index.atomicScan(begin, end);
+		List<ValueListImpl> results = new ArrayList<ValueListImpl>();
+
+		// evaluate all values
+		for (ValueListImpl v : all) {
+			if (p.evaluate(v))
+				results.add(v);
+		}
+		return results;
 	}
 
 	@Override
 	public void bulkPut(List<Pair<KeyImpl, ValueListImpl>> mappings)
 			throws IOException, ServiceNotInitializedException {
-		// TODO Auto-generated method stub
-		// should be very straightforward to implement, but does it need to be atomic?
 		if (currentState != State.READY)
 			throw new ServiceNotInitializedException();
+
+		// call bulkput on index
+		index.bulkPut(mappings);
 
 	}
 
@@ -246,6 +269,12 @@ public class KeyValueBaseImpl implements KeyValueBase<KeyImpl, ValueListImpl> {
 	private ValueImpl parseValue(String s) throws NumberFormatException {
 		int value = Integer.parseInt(s);
 		return new ValueImpl(value);
+	}
+
+	// Prints a message with the current ThreadID
+	protected void displayMessage(String message) {
+		System.out.println("KeyValueBaseImpl: " + message + " ~  "
+				+ Thread.currentThread());
 	}
 
 }
